@@ -1,12 +1,85 @@
-{ "title": "Google Maps leads input", "type": "object", "schemaVersion": 1, "properties": {
-  "searchTerms": { "title": "Search terms", "type": "array", "editor": "stringList", "description": "What you'd type into Google Maps, e.g. dentist, plumber, coffee shop.", "prefill": ["dentist"] },
-  "location": { "title": "Location", "type": "string", "editor": "textfield", "description": "City, region or ZIP, e.g. Austin, TX. Leave empty if your search terms already include it.", "prefill": "Austin, TX" },
-  "maxPlacesPerSearch": { "title": "Max places per search term", "type": "integer", "minimum": 1, "maximum": 500, "default": 20, "description": "Google Maps lists up to ~120 places per search; split big areas into several locations or terms." },
-  "extractContacts": { "title": "Extract emails & socials from websites", "type": "boolean", "default": true, "description": "Visits each business website (home + contact/about pages) for emails, phones and social profiles." },
-  "maxContactPages": { "title": "Max website pages per business", "type": "integer", "minimum": 1, "maximum": 6, "default": 3 },
-  "minRating": { "title": "Minimum rating", "type": "integer", "minimum": 0, "maximum": 5, "default": 0, "description": "Skip places rated below this." },
-  "skipClosed": { "title": "Skip closed places", "type": "boolean", "default": false },
-  "language": { "title": "Language", "type": "string", "editor": "textfield", "default": "en" },
-  "startUrls": { "title": "Google Maps search URLs (optional)", "type": "array", "editor": "requestListSources", "description": "Direct Google Maps search URLs, used in addition to search terms." },
-  "proxyConfiguration": { "title": "Proxy", "type": "object", "editor": "proxy", "description": "Apify datacenter proxy works for most runs; switch to residential if you see blocks.", "prefill": { "useApifyProxy": true }, "default": { "useApifyProxy": true } }
-}, "required": [] }
+{
+  "title": "Google Maps leads input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "searchTerms": {
+      "title": "Search terms",
+      "type": "array",
+      "editor": "stringList",
+      "description": "What you'd type into Google Maps, e.g. dentist, plumber, coffee shop.",
+      "prefill": [
+        "dentist"
+      ]
+    },
+    "location": {
+      "title": "Location",
+      "type": "string",
+      "editor": "textfield",
+      "description": "City, region or ZIP, e.g. Austin, TX. Leave empty if your search terms already include it.",
+      "prefill": "Austin, TX"
+    },
+    "maxPlacesPerSearch": {
+      "title": "Max places per search term",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500,
+      "default": 20,
+      "description": "Google Maps lists up to ~120 places per search; split big areas into several locations or terms."
+    },
+    "extractContacts": {
+      "title": "Extract emails & socials from websites",
+      "type": "boolean",
+      "default": true,
+      "description": "Visits each business website (home + contact/about pages) for emails, phones and social profiles."
+    },
+    "maxContactPages": {
+      "title": "Max website pages per business",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6,
+      "default": 3,
+      "description": "Max website pages per business"
+    },
+    "minRating": {
+      "title": "Minimum rating",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 0,
+      "description": "Skip places rated below this."
+    },
+    "skipClosed": {
+      "title": "Skip closed places",
+      "type": "boolean",
+      "default": false,
+      "description": "Skip closed places"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string",
+      "editor": "textfield",
+      "default": "en",
+      "description": "Language"
+    },
+    "startUrls": {
+      "title": "Google Maps search URLs (optional)",
+      "type": "array",
+      "editor": "requestListSources",
+      "description": "Direct Google Maps search URLs, used in addition to search terms."
+    },
+    "proxyConfiguration": {
+      "title": "Proxy",
+      "type": "object",
+      "editor": "proxy",
+      "description": "Apify datacenter proxy works for most runs; switch to residential if you see blocks.",
+      "prefill": {
+        "useApifyProxy": true
+      },
+      "default": {
+        "useApifyProxy": true
+      }
+    }
+  },
+  "required": []
+}
