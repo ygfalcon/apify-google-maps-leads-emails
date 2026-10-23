@@ -28,7 +28,7 @@ async function acceptConsent(page) {
 }
 
 const BLOCK_TYPES = new Set(['image', 'media', 'font']);
-const BLOCK_URL = /\/maps\/vt|\/kh\/|googleusercontent\.com\/p\/|streetviewpixels|\/gen_204|\/log\?|doubleclick|google-analytics|googletagmanager/;
+const BLOCK_URL = /\/maps\/vt|\/kh\/|googleusercontent\.com\/p\/|streetviewpixels|doubleclick|google-analytics|googletagmanager/;
 const crawler = new PlaywrightCrawler({
     proxyConfiguration: proxy,
     maxConcurrency: 3, useSessionPool: true, browserPoolOptions: { maxOpenPagesPerBrowser: 3, retireBrowserAfterPageCount: 200 }, maxRequestRetries: 4, requestHandlerTimeoutSecs: 240, navigationTimeoutSecs: 60,
@@ -46,14 +46,22 @@ const crawler = new PlaywrightCrawler({
             if (page.url().includes('/maps/place/')) return handlePlace(page, request);
             throw new Error('Results feed not found (possible block); retrying');
         }
-        const want = maxTotal; const links = new Set(); let stale = 0;
-        while (links.size < want && stale < 4) {
-            const before = links.size;
-            for (const h of await page.$$eval('a.hfpxzc', (as) => as.map((a) => a.href))) links.add(h.split('?')[0]);
-            if (await page.locator('span.HlvSq').count()) break; // "You've reached the end of the list."
-            await feed.evaluate((el) => el.scrollBy(0, 4000)); await page.waitForTimeout(700);
-            stale = links.size === before ? stale + 1 : 0;
+        const want = maxTotal; const links = new Set(); let stale = 0; const t0 = Date.now();
+        const collect = async () => { for (const h of await page.$$eval('a.hfpxzc', (as) => as.map((a) => a.href))) links.add(h.split('?')[0]); };
+        // Google lazy-loads ~20 results per page only when the last card scrolls into view; wait for the feed to grow
+        // instead of a fixed short sleep, and allow several retries (with a wheel nudge) before declaring the list exhausted.
+        while (links.size < want && stale < 8 && Date.now() - t0 < 180000) {
+            await collect(); const before = links.size; if (before >= want) break;
+            if (await page.locator('span.HlvSq, p.fontBodyMedium > span > span.HlvSq').count()) break; // "You've reached the end of the list."
+            const cards = await page.locator('a.hfpxzc').count();
+            await page.locator('a.hfpxzc').last().scrollIntoViewIfNeeded().catch(() => {});
+            await feed.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+            if (stale >= 2) { await feed.hover().catch(() => {}); await page.mouse.wheel(0, 3000).catch(() => {}); }
+            await page.waitForFunction((n) => document.querySelectorAll('a.hfpxzc').length > n || !!document.querySelector('span.HlvSq'), cards, { timeout: 5000 }).catch(() => {});
+            await collect(); stale = links.size === before ? stale + 1 : 0;
         }
+        const ended = (await page.locator('span.HlvSq').count()) > 0;
+        if (links.size < want && !ended && request.retryCount < 2) throw new Error(`Feed stalled at ${links.size}/${want} places before end of list; retrying with a fresh session`);
         log.info(`Search "${request.userData.term}": ${links.size} places`);
         await c.addRequests([...links].slice(0, want).map((url, i) => ({ url: `${url}?hl=${language}`, uniqueKey: url, label: 'PLACE', userData: { term: request.userData.term, rank: i + 1 } })));
     },
