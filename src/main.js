@@ -6,7 +6,7 @@ await Actor.init();
 const input = (await Actor.getInput()) || {};
 const {
     searchTerms = ['coffee shop'], location = 'Austin, TX', startUrls = [],
-    maxPlacesPerSearch = 20, language = 'en', extractContacts = true, maxContactPages = 3,
+    maxPlacesPerSearch = 20, language = 'en', extractContacts = false, maxContactPages = 3,
     skipClosed = false, minRating = 0, proxyConfiguration: proxyInput,
 } = input;
 const maxTotal = Math.max(1, Math.min(Number(maxPlacesPerSearch) || 20, 500));
@@ -27,12 +27,14 @@ async function acceptConsent(page) {
     if (await btn.count()) { await btn.click().catch(() => {}); await page.waitForLoadState('domcontentloaded').catch(() => {}); }
 }
 
+const BLOCK_TYPES = new Set(['image', 'media', 'font']);
+const BLOCK_URL = /\/maps\/vt|\/kh\/|googleusercontent\.com\/p\/|streetviewpixels|\/gen_204|\/log\?|doubleclick|google-analytics|googletagmanager/;
 const crawler = new PlaywrightCrawler({
     proxyConfiguration: proxy,
-    maxConcurrency: 4, maxRequestRetries: 4, requestHandlerTimeoutSecs: 240, navigationTimeoutSecs: 60,
-    launchContext: { launchOptions: { executablePath: process.env.CHROME_PATH || undefined, args: ['--lang=en-US'] } },
+    maxConcurrency: 3, useSessionPool: true, browserPoolOptions: { maxOpenPagesPerBrowser: 3, retireBrowserAfterPageCount: 200 }, maxRequestRetries: 4, requestHandlerTimeoutSecs: 240, navigationTimeoutSecs: 60,
+    launchContext: { launchOptions: { executablePath: process.env.CHROME_PATH || undefined, args: ['--lang=en-US', '--disable-gpu', '--disable-dev-shm-usage', '--no-zygote', '--blink-settings=imagesEnabled=false'] } },
     preNavigationHooks: [async ({ page }) => {
-        await page.route('**/*', (r) => (['image', 'media', 'font'].includes(r.request().resourceType()) ? r.abort() : r.continue()));
+        await page.route('**/*', (r) => { const q = r.request(); return (BLOCK_TYPES.has(q.resourceType()) || BLOCK_URL.test(q.url())) ? r.abort() : r.continue(); });
     }],
     async requestHandler({ page, request, crawler: c }) {
         await acceptConsent(page);
@@ -45,11 +47,11 @@ const crawler = new PlaywrightCrawler({
             throw new Error('Results feed not found (possible block); retrying');
         }
         const want = maxTotal; const links = new Set(); let stale = 0;
-        while (links.size < want && stale < 6) {
+        while (links.size < want && stale < 4) {
             const before = links.size;
             for (const h of await page.$$eval('a.hfpxzc', (as) => as.map((a) => a.href))) links.add(h.split('?')[0]);
             if (await page.locator('span.HlvSq').count()) break; // "You've reached the end of the list."
-            await feed.evaluate((el) => el.scrollBy(0, 4000)); await page.waitForTimeout(1500);
+            await feed.evaluate((el) => el.scrollBy(0, 4000)); await page.waitForTimeout(700);
             stale = links.size === before ? stale + 1 : 0;
         }
         log.info(`Search "${request.userData.term}": ${links.size} places`);
@@ -60,7 +62,7 @@ const crawler = new PlaywrightCrawler({
 
 async function handlePlace(page, request) {
     await page.waitForSelector('h1', { timeout: 30000 });
-    await page.waitForTimeout(800);
+    await page.waitForSelector('button[data-item-id], div.F7nice', { timeout: 3000 }).catch(() => {});
     const d = await page.evaluate(() => {
         const t = (sel) => document.querySelector(sel)?.textContent?.trim() || null;
         const attr = (sel, a) => document.querySelector(sel)?.getAttribute(a) || null;
@@ -110,7 +112,8 @@ async function handlePlace(page, request) {
         if (e.error) { // fallback: render with the real browser (handles JS sites and bot walls)
             try {
                 const p2 = await page.context().newPage();
-                await p2.goto(website, { timeout: 30000, waitUntil: 'domcontentloaded' }); await p2.waitForTimeout(1500);
+                await p2.route('**/*', (r) => (BLOCK_TYPES.has(r.request().resourceType()) || r.request().resourceType() === 'stylesheet' ? r.abort() : r.continue()));
+                await p2.goto(website, { timeout: 30000, waitUntil: 'domcontentloaded' }); await p2.waitForTimeout(500);
                 const { extractFromHtml } = await import('./contacts.js');
                 const r = extractFromHtml(await p2.content(), p2.url()); await p2.close();
                 e = { emails: r.emails, phones: r.phones, socials: r.socials, error: null };

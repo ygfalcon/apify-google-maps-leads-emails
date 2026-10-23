@@ -30,7 +30,7 @@
     "extractContacts": {
       "title": "Extract emails & socials from websites",
       "type": "boolean",
-      "default": true,
+      "default": false,
       "description": "Visits each business website (home + contact/about pages) for emails, phones and social profiles."
     },
     "maxContactPages": {

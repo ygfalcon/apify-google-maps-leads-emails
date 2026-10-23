@@ -1,7 +1,203 @@
-{ "actorSpecification": 1, "fields": { "type": "object", "properties": {
-  "title": {"type":"string"}, "category": {"type":["string","null"]}, "address": {"type":["string","null"]}, "phone": {"type":["string","null"]},
-  "website": {"type":["string","null"]}, "rating": {"type":["number","null"]}, "reviewsCount": {"type":["number","null"]},
-  "emails": {"type":"array"}, "socials": {"type":"object"}, "placeId": {"type":["string","null"]}, "location": {"type":["object","null"]} },
-  "required": ["title"] },
-  "views": { "leads": { "title": "Leads", "transformation": { "fields": ["title","category","phone","emails","website","address","rating","reviewsCount","socials","googleMapsUrl"] },
-    "display": { "component": "table", "properties": { "title": {"label":"Name"}, "emails": {"label":"Emails"}, "phone": {"label":"Phone"}, "website": {"label":"Website","format":"link"}, "googleMapsUrl": {"label":"Maps","format":"link"} } } } } }
+{
+  "actorSpecification": 1,
+  "fields": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Business name as shown on Google Maps."
+      },
+      "category": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Primary Google Maps category."
+      },
+      "address": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Full street address."
+      },
+      "phone": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Phone number from the Maps listing."
+      },
+      "website": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Business website, cleaned of Google redirects and utm_ parameters."
+      },
+      "rating": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "description": "Average star rating (1-5)."
+      },
+      "reviewsCount": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "description": "Number of Google reviews."
+      },
+      "priceLevel": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Price level label, e.g. $$."
+      },
+      "closedStatus": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "permanently_closed or temporarily_closed, null if open."
+      },
+      "plusCode": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Google Plus Code."
+      },
+      "location": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "Coordinates {lat, lng}."
+      },
+      "placeId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Google place ID."
+      },
+      "cid": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Google customer ID (CID) as a decimal string."
+      },
+      "googleMapsUrl": {
+        "type": "string",
+        "description": "Link to the place on Google Maps."
+      },
+      "openingHours": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "description": "Opening hours, one 'Day: hours' string per day."
+      },
+      "searchTerm": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Search term that found this place."
+      },
+      "rank": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "description": "Position in the search results."
+      },
+      "emails": {
+        "type": "array",
+        "description": "Emails found on the business website (empty if enrichment is off)."
+      },
+      "socials": {
+        "type": "object",
+        "description": "Social profile URLs found on the website, keyed by network."
+      },
+      "websitePhones": {
+        "type": "array",
+        "description": "Phone numbers found on the website."
+      },
+      "contactsStatus": {
+        "type": "string",
+        "description": "ok, skipped, no_website, or an error message for website enrichment."
+      },
+      "scrapedAt": {
+        "type": "string",
+        "description": "ISO timestamp of the scrape."
+      }
+    },
+    "required": [
+      "title"
+    ]
+  },
+  "views": {
+    "leads": {
+      "title": "Leads",
+      "transformation": {
+        "fields": [
+          "title",
+          "category",
+          "phone",
+          "emails",
+          "website",
+          "address",
+          "rating",
+          "reviewsCount",
+          "socials",
+          "googleMapsUrl"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "title": {
+            "label": "Name"
+          },
+          "category": {
+            "label": "Category"
+          },
+          "phone": {
+            "label": "Phone"
+          },
+          "emails": {
+            "label": "Emails"
+          },
+          "website": {
+            "label": "Website",
+            "format": "link"
+          },
+          "address": {
+            "label": "Address"
+          },
+          "rating": {
+            "label": "Rating",
+            "format": "number"
+          },
+          "reviewsCount": {
+            "label": "Reviews",
+            "format": "number"
+          },
+          "socials": {
+            "label": "Socials",
+            "format": "object"
+          },
+          "googleMapsUrl": {
+            "label": "Maps",
+            "format": "link"
+          }
+        }
+      }
+    }
+  }
+}

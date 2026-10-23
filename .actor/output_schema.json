@@ -1,0 +1,13 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "Google Maps leads",
+  "description": "Where this Actor stores its output.",
+  "properties": {
+    "results": {
+      "type": "string",
+      "title": "Results (dataset items)",
+      "description": "One row per business with Maps details and, if enabled, website emails and socials.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}
