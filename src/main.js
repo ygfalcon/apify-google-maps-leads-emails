@@ -15,8 +15,8 @@ const {
 } = input;
 const maxTotal = Math.max(1, Math.min(Number(maxPlacesPerSearch) || 20, 500));
 const reviewLimit = Math.max(0, Math.min(Number(maxReviews) || 0, 8));
-log.info(`extractContacts=${Boolean(extractContacts)} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
 const contactPages = Math.max(1, Math.min(Number(maxContactPages) || 3, 6));
+log.info(`extractContacts=${Boolean(extractContacts)} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
 const proxy = proxyInput?.useApifyProxy || proxyInput?.proxyUrls ? await Actor.createProxyConfiguration(proxyInput) : undefined;
 const seenPlaces = new Set();
 let pushed = 0;
