@@ -1,0 +1,7 @@
+{ "actorSpecification": 1, "fields": { "type": "object", "properties": {
+  "title": {"type":"string"}, "category": {"type":["string","null"]}, "address": {"type":["string","null"]}, "phone": {"type":["string","null"]},
+  "website": {"type":["string","null"]}, "rating": {"type":["number","null"]}, "reviewsCount": {"type":["number","null"]},
+  "emails": {"type":"array"}, "socials": {"type":"object"}, "placeId": {"type":["string","null"]}, "location": {"type":["object","null"]} },
+  "required": ["title"] },
+  "views": { "leads": { "title": "Leads", "transformation": { "fields": ["title","category","phone","emails","website","address","rating","reviewsCount","socials","googleMapsUrl"] },
+    "display": { "component": "table", "properties": { "title": {"label":"Name"}, "emails": {"label":"Emails"}, "phone": {"label":"Phone"}, "website": {"label":"Website","format":"link"}, "googleMapsUrl": {"label":"Maps","format":"link"} } } } } }

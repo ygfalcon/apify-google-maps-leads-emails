@@ -1,0 +1,18 @@
+{
+  "name": "apify-gmaps",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "apify": "^3.7.2",
+    "crawlee": "^3.18.2",
+    "playwright": "^1.48.2"
+  }
+}
