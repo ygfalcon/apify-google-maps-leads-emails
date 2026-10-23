@@ -10,11 +10,12 @@ await Actor.init();
 const input = (await Actor.getInput()) || {};
 const {
     searchTerms = ['coffee shop'], location = 'Austin, TX', startUrls = [],
-    maxPlacesPerSearch = 20, language = 'en', extractContacts = false, maxContactPages = 3,
+    maxPlacesPerSearch = 20, language = 'en', extractContacts = true, maxContactPages = 3,
     maxReviews = 0, skipClosed = false, minRating = 0, proxyConfiguration: proxyInput,
 } = input;
 const maxTotal = Math.max(1, Math.min(Number(maxPlacesPerSearch) || 20, 500));
 const reviewLimit = Math.max(0, Math.min(Number(maxReviews) || 0, 8));
+log.info(`extractContacts=${Boolean(extractContacts)} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
 const contactPages = Math.max(1, Math.min(Number(maxContactPages) || 3, 6));
 const proxy = proxyInput?.useApifyProxy || proxyInput?.proxyUrls ? await Actor.createProxyConfiguration(proxyInput) : undefined;
 const seenPlaces = new Set();

@@ -230,19 +230,41 @@
     "leads": {
       "title": "Leads",
       "transformation": {
+        "flatten": ["reviewsDistribution", "location"],
         "fields": [
           "title",
           "category",
           "categories",
           "phone",
           "emails",
+          "websitePhones",
           "website",
+          "socials",
+          "contactsStatus",
           "address",
+          "street",
+          "neighborhood",
           "city",
+          "state",
+          "postalCode",
+          "countryCode",
           "rating",
           "reviewsCount",
+          "reviewsDistribution.oneStar",
+          "reviewsDistribution.twoStar",
+          "reviewsDistribution.threeStar",
+          "reviewsDistribution.fourStar",
+          "reviewsDistribution.fiveStar",
           "imagesCount",
-          "socials",
+          "priceLevel",
+          "openingHours",
+          "permanentlyClosed",
+          "temporarilyClosed",
+          "description",
+          "menuUrl",
+          "reservationUrl",
+          "location.lat",
+          "location.lng",
           "googleMapsUrl"
         ]
       },
@@ -263,17 +285,45 @@
             "label": "Phone"
           },
           "emails": {
-            "label": "Emails"
+            "label": "Emails",
+            "format": "array"
+          },
+          "websitePhones": {
+            "label": "Website phones",
+            "format": "array"
           },
           "website": {
             "label": "Website",
             "format": "link"
           },
+          "socials": {
+            "label": "Socials",
+            "format": "object"
+          },
+          "contactsStatus": {
+            "label": "Contacts",
+            "format": "text"
+          },
           "address": {
             "label": "Address"
           },
+          "street": {
+            "label": "Street"
+          },
+          "neighborhood": {
+            "label": "Neighborhood"
+          },
           "city": {
             "label": "City"
+          },
+          "state": {
+            "label": "State"
+          },
+          "postalCode": {
+            "label": "Postal code"
+          },
+          "countryCode": {
+            "label": "Country"
           },
           "rating": {
             "label": "Rating",
@@ -283,13 +333,63 @@
             "label": "Reviews",
             "format": "number"
           },
+          "reviewsDistribution.oneStar": {
+            "label": "1 star",
+            "format": "number"
+          },
+          "reviewsDistribution.twoStar": {
+            "label": "2 stars",
+            "format": "number"
+          },
+          "reviewsDistribution.threeStar": {
+            "label": "3 stars",
+            "format": "number"
+          },
+          "reviewsDistribution.fourStar": {
+            "label": "4 stars",
+            "format": "number"
+          },
+          "reviewsDistribution.fiveStar": {
+            "label": "5 stars",
+            "format": "number"
+          },
           "imagesCount": {
             "label": "Photos",
             "format": "number"
           },
-          "socials": {
-            "label": "Socials",
-            "format": "object"
+          "priceLevel": {
+            "label": "Price"
+          },
+          "openingHours": {
+            "label": "Hours",
+            "format": "array"
+          },
+          "permanentlyClosed": {
+            "label": "Permanently closed",
+            "format": "boolean"
+          },
+          "temporarilyClosed": {
+            "label": "Temporarily closed",
+            "format": "boolean"
+          },
+          "description": {
+            "label": "Description"
+          },
+          "menuUrl": {
+            "label": "Menu",
+            "format": "link"
+          },
+          "reservationUrl": {
+            "label": "Reservation",
+            "format": "link"
+          },
+          "location.lat": {
+            "label": "Latitude",
+            "format": "number"
+          },
+          "location.lng": {
+            "label": "Longitude",
+            "format": "number"
           },
           "googleMapsUrl": {
             "label": "Maps",
