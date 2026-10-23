@@ -39,7 +39,15 @@
       "minimum": 1,
       "maximum": 6,
       "default": 3,
-      "description": "Max website pages per business"
+      "description": "Home page plus contact and about pages, up to this many, when email extraction is on."
+    },
+    "maxReviews": {
+      "title": "Max reviews per place",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8,
+      "default": 0,
+      "description": "How many Google reviews to keep from the place payload. 0 leaves reviews empty. This does not open extra review pages."
     },
     "minRating": {
       "title": "Minimum rating",

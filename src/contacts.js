@@ -14,12 +14,13 @@ const SOCIAL = {
 };
 const CONTACT_HINT = /contact|kontakt|about|impressum|team|support|get-in-touch/i;
 
-async function fetchHtml(url, proxyUrl, timeoutMs = 15000) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+async function fetchHtml(url, proxyUrl, timeoutMs = 15000, attempts = 2) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
         try {
             const res = await gotScraping({ url, proxyUrl, timeout: { request: timeoutMs }, followRedirect: true, retry: { limit: 0 }, throwHttpErrors: false });
             const type = String(res.headers['content-type'] || '');
-            if (res.statusCode < 400 && type.includes('html')) return { html: String(res.body).slice(0, 2_000_000), finalUrl: res.url };
+            const html = String(res.body ?? '');
+            if (res.statusCode < 400 && type.includes('html')) return { html: html.slice(0, 2_000_000), finalUrl: res.url, bytes: Buffer.byteLength(html) };
             if (res.statusCode < 500) return null;
         } catch { /* retry */ }
     }
@@ -49,22 +50,22 @@ export function extractFromHtml(html, baseUrl) {
     };
 }
 
-export async function enrichWebsite(website, { proxyUrl, maxPages = 3 } = {}) {
-    const out = { emails: [], phones: [], socials: {}, pagesScanned: 0, error: null };
+export async function enrichWebsite(website, { proxyUrl, maxPages = 3, timeoutMs = 15000, attempts = 2 } = {}) {
+    const out = { emails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0, error: null };
     if (!website) return out;
     let url = website.startsWith('http') ? website : `https://${website}`;
-    const first = await fetchHtml(url, proxyUrl);
+    const first = await fetchHtml(url, proxyUrl, timeoutMs, attempts);
     if (!first) { out.error = 'website_unreachable'; return out; }
     const queue = [first]; const seen = new Set([first.finalUrl]);
     const emails = new Set(); const phones = new Set(); const socials = {};
     while (queue.length && out.pagesScanned < maxPages) {
-        const page = queue.shift(); out.pagesScanned++;
+        const page = queue.shift(); out.pagesScanned++; out.bytes += page.bytes || 0;
         const r = extractFromHtml(page.html, page.finalUrl);
         r.emails.forEach((e) => emails.add(e)); r.phones.forEach((p) => phones.add(p));
         for (const [k, v] of Object.entries(r.socials)) socials[k] = [...new Set([...(socials[k] || []), ...v])].slice(0, 5);
         for (const l of r.contactLinks) {
             if (seen.has(l) || seen.size >= maxPages) continue; seen.add(l);
-            const p = await fetchHtml(l, proxyUrl); if (p) queue.push(p);
+            const p = await fetchHtml(l, proxyUrl, timeoutMs, attempts); if (p) queue.push(p);
         }
     }
     // Rank emails: same domain as website first.

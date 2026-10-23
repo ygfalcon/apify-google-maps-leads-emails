@@ -14,6 +14,35 @@
         ],
         "description": "Primary Google Maps category."
       },
+      "categories": {
+        "type": "array",
+        "description": "All Google Maps categories, primary first.",
+        "items": { "type": "string" }
+      },
+      "street": {
+        "type": ["string", "null"],
+        "description": "Street line of the address."
+      },
+      "neighborhood": {
+        "type": ["string", "null"],
+        "description": "Neighborhood, if Google provides one."
+      },
+      "city": {
+        "type": ["string", "null"],
+        "description": "City or locality."
+      },
+      "state": {
+        "type": ["string", "null"],
+        "description": "State, region, or administrative area."
+      },
+      "postalCode": {
+        "type": ["string", "null"],
+        "description": "Postal code."
+      },
+      "countryCode": {
+        "type": ["string", "null"],
+        "description": "ISO country code, e.g. US."
+      },
       "address": {
         "type": [
           "string",
@@ -49,6 +78,17 @@
         ],
         "description": "Number of Google reviews."
       },
+      "reviewsDistribution": {
+        "type": ["object", "null"],
+        "description": "Review counts by star rating.",
+        "properties": {
+          "oneStar": { "type": "number" },
+          "twoStar": { "type": "number" },
+          "threeStar": { "type": "number" },
+          "fourStar": { "type": "number" },
+          "fiveStar": { "type": "number" }
+        }
+      },
       "priceLevel": {
         "type": [
           "string",
@@ -62,6 +102,14 @@
           "null"
         ],
         "description": "permanently_closed or temporarily_closed, null if open."
+      },
+      "permanentlyClosed": {
+        "type": "boolean",
+        "description": "True when Google marks the place permanently closed."
+      },
+      "temporarilyClosed": {
+        "type": "boolean",
+        "description": "True when Google marks the place temporarily closed."
       },
       "plusCode": {
         "type": [
@@ -91,6 +139,10 @@
         ],
         "description": "Google customer ID (CID) as a decimal string."
       },
+      "fid": {
+        "type": ["string", "null"],
+        "description": "Google feature id, 0xhex:0xhex."
+      },
       "googleMapsUrl": {
         "type": "string",
         "description": "Link to the place on Google Maps."
@@ -101,6 +153,39 @@
           "null"
         ],
         "description": "Opening hours, one 'Day: hours' string per day."
+      },
+      "description": {
+        "type": ["string", "null"],
+        "description": "Short place description from Google, when one is published."
+      },
+      "menuUrl": {
+        "type": ["string", "null"],
+        "description": "Menu link from the listing."
+      },
+      "reservationUrl": {
+        "type": ["string", "null"],
+        "description": "Table reservation link from the listing."
+      },
+      "imagesCount": {
+        "type": ["number", "null"],
+        "description": "Number of photos on the listing. Photo files are not downloaded."
+      },
+      "popularTimesHistogram": {
+        "type": ["object", "null"],
+        "description": "Hourly busyness by weekday. Keys are monday through sunday. Each value is {hour, occupancyPercent}. Null when Google omits popular times."
+      },
+      "popularTimesLiveText": {
+        "type": ["string", "null"],
+        "description": "Live busyness label, e.g. A little busy."
+      },
+      "popularTimesLivePercent": {
+        "type": ["number", "null"],
+        "description": "Live busyness as a percent."
+      },
+      "reviews": {
+        "type": "array",
+        "description": "Google reviews included when maxReviews is greater than 0. Empty otherwise.",
+        "items": { "type": "object" }
       },
       "searchTerm": {
         "type": [
@@ -148,12 +233,15 @@
         "fields": [
           "title",
           "category",
+          "categories",
           "phone",
           "emails",
           "website",
           "address",
+          "city",
           "rating",
           "reviewsCount",
+          "imagesCount",
           "socials",
           "googleMapsUrl"
         ]
@@ -166,6 +254,10 @@
           },
           "category": {
             "label": "Category"
+          },
+          "categories": {
+            "label": "Categories",
+            "format": "array"
           },
           "phone": {
             "label": "Phone"
@@ -180,12 +272,19 @@
           "address": {
             "label": "Address"
           },
+          "city": {
+            "label": "City"
+          },
           "rating": {
             "label": "Rating",
             "format": "number"
           },
           "reviewsCount": {
             "label": "Reviews",
+            "format": "number"
+          },
+          "imagesCount": {
+            "label": "Photos",
             "format": "number"
           },
           "socials": {
