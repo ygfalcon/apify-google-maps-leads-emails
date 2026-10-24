@@ -1,6 +1,6 @@
 // Website contact enrichment: emails, phones, social profiles. Plain HTTP (no browser), retries, small page budget.
 import { gotScraping } from './http.js';
-import { hostFromUrl, isThirdPartyEmail, isValidEmailSyntax } from './web/extract.js';
+import { emailMatchesBusiness, hostFromUrl, isThirdPartyEmail as classifyThirdPartyEmail, isValidEmailSyntax } from './web/extract.js';
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,24}/g;
 const BAD_EMAIL = /\.(png|jpe?g|gif|svg|webp|css|js)$|@(example|domain|email|sentry|wixpress|sentry-next)\.|^(u00|x22)|@\d+x\./i;
@@ -77,7 +77,15 @@ export function withDeadline(promise, ms, label = 'timeout') {
     ]).finally(() => clearTimeout(timer));
 }
 
-export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineMs = SITE_DEADLINE_MS, engine = engineEnrich } = {}) {
+const businessTitles = new Map();
+
+export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineMs = SITE_DEADLINE_MS, engine = engineEnrich, title = '' } = {}) {
+    const businessTitle = title || businessTitles.get(String(website)) || '';
+    // Second brand domain stays with the business. Callers below keep the same filters.
+    function isThirdPartyEmail(email, siteHost) {
+        if (emailMatchesBusiness(email, siteHost, businessTitle)) return false;
+        return classifyThirdPartyEmail(email, siteHost);
+    }
     const out = {
         emails: [], thirdPartyEmails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0,
         impressumOwner: null, vatId: null, error: null,
@@ -151,3 +159,7 @@ export function createEnrichmentCache(enrich = enrichWebsite) {
         }
     };
 }
+
+enrichWebsite.noteTitle = (website, title) => {
+    if (website && title) businessTitles.set(String(website), String(title));
+};

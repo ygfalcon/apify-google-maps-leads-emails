@@ -105,6 +105,97 @@ test('fbml namespaces and numeric instagram fragments are not profiles', () => {
     assert.ok(socials.instagram.includes('https://www.instagram.com/thebakehousechicago'));
 });
 
+test('facebook slugs keep hyphens, review tabs collapse, and website-builder profiles are dropped', async () => {
+    const { clipHtml } = await import('../src/web/extract.js');
+    const html = `
+      <a href="https://www.facebook.com/38th-Street-Dental-201580976550317/?fref=ts">38</a>
+      <a href="https://www.facebook.com/OlinPlumbingTampa/reviews">reviews</a>
+      <a href="https://www.facebook.com/OlinPlumbingTampa">page</a>
+      <a href="https://www.facebook.com/wix">wix</a>
+      <a href="https://www.instagram.com/squarespace">sq</a>
+      <a href="https://x.com/wix">x</a>
+      <a href="https://www.instagram.com/olinplumbinginc">ig</a>
+      <script>{"sameAs":"https:\\/\\/www.facebook.com\\/joscoffee"}</script>`;
+    const socials = extractSocials(clipHtml(html));
+    assert.ok(socials.facebook.includes('https://www.facebook.com/38th-Street-Dental-201580976550317'), socials.facebook.join(','));
+    assert.equal(socials.facebook.filter((url) => url.includes('OlinPlumbingTampa')).length, 1);
+    assert.equal(socials.facebook.some((url) => url.endsWith('/reviews')), false);
+    assert.equal(socials.facebook.some((url) => url.endsWith('/wix')), false);
+    assert.equal(socials.instagram.some((url) => url.includes('squarespace')), false);
+    assert.deepEqual(socials.twitter, []);
+    assert.ok(socials.instagram.includes('https://www.instagram.com/olinplumbinginc'));
+    assert.ok(socials.facebook.includes('https://www.facebook.com/joscoffee'));
+});
+
+test('a footer mailbox past 1.5MB is still extracted', () => {
+    const html = `<html><body>${'x '.repeat(800000)}<a href="mailto:&#105;&#110;fo&#64;sers-ra-gmbh.de">mail</a></body></html>`;
+    assert.ok(html.length > 1_500_000);
+    const emails = extractPage(html, 'https://visa-lawyer-germany.com/', 'home').emails.map((row) => row.email);
+    assert.ok(emails.includes('info@sers-ra-gmbh.de'), emails.join(','));
+});
+
+test('a captcha interstitial is not saved as the website', async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+        calls += 1;
+        if (calls === 1) {
+            return {
+                statusCode: 202,
+                headers: { 'content-type': 'text/html' },
+                body: '<html><head><meta http-equiv="refresh" content="0;/.well-known/sgcaptcha/?r=%2F"></head></html>',
+                url: 'https://www.lifetimedental.com/',
+            };
+        }
+        return {
+            statusCode: 200,
+            headers: { 'content-type': 'text/html' },
+            body: '<html><body><a href="mailto:info@lifetimedental.com">e</a></body></html>',
+            url: 'https://www.lifetimedental.com/',
+        };
+    };
+    const page = await fetchHtml('https://www.lifetimedental.com/', { fetchImpl, timeoutMs: 1000 });
+    assert.equal(calls, 2);
+    assert.ok(page.html.includes('info@lifetimedental.com'));
+});
+
+test('a second brand domain stays in emails and a bar association does not', async () => {
+    const { emailMatchesBusiness } = await import('../src/web/extract.js');
+    assert.equal(emailMatchesBusiness('info@olinplumbinginc.com', 'plumberstampa.com', 'Olin Plumbing Inc.'), true);
+    assert.equal(emailMatchesBusiness('rubinstein@ra-rubinstein.eu', 'anwalt-rubinstein.de', 'Lawyer Vadim Rubinstein'), true);
+    assert.equal(emailMatchesBusiness('info@sers-ra-gmbh.de', 'visa-lawyer-germany.com', 'Kanzlei Ersöz (SERS RA GmbH)'), true);
+    assert.equal(emailMatchesBusiness('info@rak-berlin.de', 'anwalt-rubinstein.de', 'Lawyer Vadim Rubinstein'), false);
+    assert.equal(emailMatchesBusiness('contact@digitalagenten.com', 'ku64.de', 'KU64'), false);
+    assert.equal(emailMatchesBusiness('info@webapto.co.uk', 'rechtsanwalt-berlin-charlottenburg.de', 'Vera Zambrano'), false);
+
+    const enriched = await enrichWebsite('https://www.plumberstampa.com/', {
+        title: 'Olin Plumbing Inc.',
+        engine: async () => ({
+            emails: ['info@olinplumbinginc.com', 'info@rak-berlin.de'],
+            phones: [],
+            socials: {},
+            pagesScanned: 1,
+            error: null,
+            finalUrl: 'https://www.plumberstampa.com/',
+        }),
+    });
+    assert.deepEqual(enriched.emails, ['info@olinplumbinginc.com']);
+    assert.deepEqual(enriched.thirdPartyEmails, ['info@rak-berlin.de']);
+
+    enrichWebsite.noteTitle('https://www.plumberstampa.com/noted', 'Olin Plumbing Inc.');
+    const noted = await enrichWebsite('https://www.plumberstampa.com/noted', {
+        engine: async () => ({
+            emails: ['info@olinplumbinginc.com', 'info@rak-berlin.de'],
+            phones: [],
+            socials: {},
+            pagesScanned: 1,
+            error: null,
+            finalUrl: 'https://www.plumberstampa.com/noted',
+        }),
+    });
+    assert.deepEqual(noted.emails, ['info@olinplumbinginc.com']);
+    assert.deepEqual(noted.thirdPartyEmails, ['info@rak-berlin.de']);
+});
+
 test('third-party mailboxes are separated from the business and from free mail', async () => {
     const { isThirdPartyEmail } = await import('../src/web/extract.js');
     assert.equal(typeof isThirdPartyEmail, 'function');
