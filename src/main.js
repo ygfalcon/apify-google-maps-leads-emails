@@ -196,7 +196,7 @@ function buildReport({ stats: s, pushed: count, totalMs, scrollDoneAt, startedAt
         contactBytes: s.contactBytes,
         memoryGb: 1,
     });
-    const grossPer1000 = 4; // unchanged prices: $0.003 place + $0.001 contacts
+    const grossPer1000 = 4.9; // $0.0034 place + $0.0015 contacts
     const netPer1000 = grossPer1000 * 0.8;
     return {
         places: count,
@@ -214,6 +214,6 @@ function buildReport({ stats: s, pushed: count, totalMs, scrollDoneAt, startedAt
         contactPages: s.contactPages,
         per1000,
         marginOnNet: per1000.totalUsd ? Math.round((1 - per1000.totalUsd / netPer1000) * 1000) / 1000 : null,
-        note: 'per1000 scales this run linearly at 1 GB. Compute $0.20/CU, external transfer $0.20/GB, dataset writes $0.005/1000. Datacenter proxy is not per-GB. Prices unchanged at $0.003 + $0.001.',
+        note: 'per1000 scales this run linearly at 1 GB. Compute $0.20/CU, external transfer $0.20/GB, dataset writes $0.005/1000. Datacenter proxy is not per-GB. Prices $0.0034 + $0.0015.',
     };
 }

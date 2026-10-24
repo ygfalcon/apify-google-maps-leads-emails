@@ -11,7 +11,7 @@
 
 ## 🚀 Why this one
 - 📧 **Emails and socials built in.** Contact enrichment is on by default and visits each business's home, contact, about and impressum pages. It decodes hidden emails (Cloudflare-protected, `name [at] domain (dot) com`), validates phone numbers and finds 13 social networks. There's no separate add-on to find and enable.
-- 💸 **Two flat prices, no tiers.** $0.003 per place and $0.001 when the website was actually reached. Unreachable sites aren't charged for contacts.
+- 💸 **Two flat prices, no tiers.** $0.0034 per place and $0.0015 when the website was actually reached. Unreachable sites aren't charged for contacts.
 - ⚡ **Fast.** Only the results list uses a browser. Place details and websites are fetched in parallel over HTTP, and each lead is saved as soon as it's done. In our measured test, 50 Tampa plumbers *with* contacts took about 20 seconds.
 - 🧱 **Spreadsheet-ready rows.** The address is split into street, neighborhood, city, state, postal code and country, there are five star-count columns, and `contactsStatus` tells you why a row has no email.
 - ⭐ **Quality filters.** Set a minimum rating, skip closed places, and optionally keep up to 8 reviews per place.
@@ -72,10 +72,10 @@ Results vary by niche and city. Many small businesses don't publish an email on 
 ## 💵 Pricing, in plain English
 | Event | When it's charged | Price |
 |---|---|---|
-| `place-scraped` | Each unique business saved | **$0.003** |
-| `contacts-enriched` | Only when that business's website was reached | **$0.001** |
+| `place-scraped` | Each unique business saved | **$0.0034** |
+| `contacts-enriched` | Only when that business's website was reached | **$0.0015** |
 
-**1,000 leads with contact enrichment cost at most $4.** That's $3 for places, plus $1 only if every website loads. Turn `extractContacts` off and it's $3 per 1,000. Platform usage is included.
+**1,000 leads with contact enrichment cost at most $4.90.** That's $3.40 for places, plus $1.50 only if every website loads. Turn `extractContacts` off and it's $3.40 per 1,000. Platform usage is included.
 
 ## 💡 Use cases
 - Cold-email and cold-call lists for any local niche
