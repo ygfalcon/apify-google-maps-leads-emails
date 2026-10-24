@@ -112,3 +112,7 @@ A saved Apify task keeps its old input. Make sure "Extract emails & socials from
 
 ---
 *Keywords: Google Maps scraper, Google Maps email extractor, Google Maps leads, local business leads, business email finder, Google Places scraper without API, lead generation tool, B2B prospecting, contact scraper, phone number scraper, Google Maps data export to CSV and Excel.*
+
+---
+
+**Built by [falcon.sol](https://x.com/ygfalcon)**: anon dev shipping pay-per-call data tools and x402 APIs for builders and agents. [X](https://x.com/ygfalcon) · [GitHub](https://github.com/ygfalcon) · [Apify](https://apify.com/falcon-sol)
