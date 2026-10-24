@@ -43,7 +43,7 @@ export async function checkMx(domain, { resolveMx = dns.resolveMx, timeoutMs = 1
                 new Promise((_, reject) => {
                     const error = new Error('timeout')
                     error.code = 'ETIMEOUT'
-                    setTimeout(() => reject(error), timeoutMs)
+                    setTimeout(() => reject(error), timeoutMs).unref?.()
                 }),
             ])
             return Array.isArray(records) && records.length > 0
@@ -63,8 +63,12 @@ export async function checkMx(domain, { resolveMx = dns.resolveMx, timeoutMs = 1
 
 export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = gotScraping } = {}) {
     for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = new AbortController()
+        let timer
         try {
-            const response = await fetchImpl({
+            // got's own timeout can miss stalls (proxy CONNECT, slow-drip bodies), so race a hard deadline too.
+            const response = await Promise.race([fetchImpl({
+                signal: controller.signal,
                 url,
                 proxyUrl,
                 timeout: { request: timeoutMs },
@@ -72,7 +76,9 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
                 retry: { limit: 0 },
                 throwHttpErrors: false,
                 headers: { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8' },
-            })
+            }), new Promise((_, reject) => {
+                timer = setTimeout(() => { controller.abort(); reject(new Error('hard_timeout')) }, timeoutMs + 2000)
+            })])
             const status = response.statusCode ?? response.status
             const headers = response.headers || {}
             const type = String(headers['content-type'] || headers['Content-Type'] || '')
@@ -86,6 +92,8 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
             return null
         } catch {
             // One retry covers a dropped connection. 4xx is not retried.
+        } finally {
+            clearTimeout(timer)
         }
     }
     return null

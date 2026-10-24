@@ -1,6 +1,6 @@
 import { Actor, log } from 'apify';
 import { PlaywrightCrawler } from 'crawlee';
-import { enrichWebsite } from './contacts.js';
+import { enrichWebsite, withDeadline } from './contacts.js';
 import { estimatePerThousand } from './cost.js';
 import { fetchPlaceDetail } from './detail.js';
 import { normalizePhone, toDatasetItem } from './place.js';
@@ -26,6 +26,8 @@ const stats = { scrollMs: [], detailMs: [], detailBytes: 0, detailFailures: 0, c
 const DETAIL_CONCURRENCY = 20;
 const limit = createLimiter(DETAIL_CONCURRENCY);
 const tasks = [];
+let closing = false; // set when the drain deadline passes: late work must not push or charge
+const DRAIN_DEADLINE_MS = 120000;
 
 const searches = [
     ...(Array.isArray(searchTerms) ? searchTerms : [searchTerms]).map((t) => String(t || '').trim()).filter(Boolean).map((t) => ({ term: t, url: `https://www.google.com/maps/search/${encodeURIComponent(location ? `${t} in ${location}` : t)}?hl=${language}` })),
@@ -141,6 +143,7 @@ async function processPlace({ url, term, rank }) {
         scrapedAt: new Date().toISOString(),
         sourceUrl: url,
     });
+    if (closing) return;
     await Actor.pushData(item);
     pushed += 1;
     log.info(`Saved #${pushed} ${item.title}`);
@@ -170,7 +173,13 @@ if (!searches.length) {
 }
 await crawler.run(searches.map((s) => ({ url: s.url, uniqueKey: s.url, label: 'SEARCH', userData: { term: s.term } })));
 const scrollDoneAt = Date.now();
-await Promise.all(tasks);
+// Every place has its own hard limits, but never let one stuck job keep the run (and its compute) alive.
+const allDone = Promise.allSettled(tasks).then(() => true);
+const finished = await withDeadline(allDone, DRAIN_DEADLINE_MS, 'drain_timeout').catch(() => false);
+if (!finished) {
+    closing = true;
+    log.warning(`Stopped waiting for unfinished places after ${DRAIN_DEADLINE_MS / 1000}s; they were not saved or charged.`);
+}
 const totalMs = Date.now() - startedAt;
 const report = buildReport({ stats, pushed, totalMs, scrollDoneAt, startedAt });
 log.info(`Timing ${JSON.stringify(report)}`);

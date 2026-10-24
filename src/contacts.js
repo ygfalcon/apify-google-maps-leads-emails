@@ -64,10 +64,27 @@ export function extractFromHtml(html, baseUrl) {
 // validated E.164 phones and 13 canonical social networks.
 import { enrichWebsite as engineEnrich } from './web/enrich.js';
 
-export async function enrichWebsite(website, { proxyUrl, maxPages = 3 } = {}) {
+// Hard cap on one website's whole enrichment (homepage + contact pages), whatever the network does.
+export const SITE_DEADLINE_MS = 30000;
+
+export function withDeadline(promise, ms, label = 'timeout') {
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label)), ms); }),
+    ]).finally(() => clearTimeout(timer));
+}
+
+export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineMs = SITE_DEADLINE_MS, engine = engineEnrich } = {}) {
     const out = { emails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0, error: null };
     if (!website) return out;
-    const r = await engineEnrich(website, { proxyUrl, maxPages, validateMx: false, timeoutMs: 6000 });
+    let r;
+    try {
+        r = await withDeadline(engine(website, { proxyUrl, maxPages, validateMx: false, timeoutMs: 6000 }), deadlineMs, 'enrich_timeout');
+    } catch (err) {
+        out.error = err?.message === 'enrich_timeout' ? 'website_timeout' : 'website_unreachable';
+        return out;
+    }
     if (r.error) { out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error; return out; }
     out.emails = r.emails.filter(isPlausibleEmail).slice(0, 10);
     out.phones = r.phones.slice(0, 5);

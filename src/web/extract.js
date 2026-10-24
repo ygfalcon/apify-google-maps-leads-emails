@@ -552,13 +552,13 @@ function contextPeople(text, pageKind) {
     const people = []
     const lines = text.split('\n').map((line) => line.replace(/\s+/g, ' ').trim())
     for (let i = 0; i < lines.length; i++) {
-        const emails = lines[i].match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}/gi) || []
+        const emails = lines[i].match(/[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,24}/gi) || []
         if (!emails.length) continue
         const window = [lines[i - 2], lines[i - 1], lines[i], lines[i + 1]].filter(Boolean)
         let name = null
         let role = null
         for (const line of window) {
-            const withoutEmail = line.replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}/gi, ' ').replace(/\s+/g, ' ').trim()
+            const withoutEmail = line.replace(/[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,24}/gi, ' ').replace(/\s+/g, ' ').trim()
             const combo = withoutEmail.match(/^([\p{Lu}][\p{L}'’.-]+(?:\s+[\p{Lu}][\p{L}'’.-]+){1,3})\s*[,|–—:-]\s*(.{2,60})$/u)
             if (combo && looksLikeName(combo[1])) {
                 name = combo[1]
@@ -886,8 +886,15 @@ function dedupePhones(entries) {
     return ranked.slice(0, 8).map(({ phone, source }) => ({ phone, source }))
 }
 
+// Blank out very long unbroken tokens (inline base64 images/fonts, minified blobs). No email, phone or
+// profile URL is that long, and leaving them in makes several regexes quadratic: a single 500 KB data URI
+// froze the event loop for minutes, which hung the whole run.
+export function stripLongTokens(html, max = 400) {
+    return String(html || '').replace(new RegExp(`[^\\s<>"']{${max},}`, 'g'), ' ')
+}
+
 export function extractPage(html, baseUrl, pageKind = 'home') {
-    const raw = String(html || '')
+    const raw = stripLongTokens(String(html || '').slice(0, 1_500_000))
     const emails = new Map()
     const people = []
     const phoneEntries = []
