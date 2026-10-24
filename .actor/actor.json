@@ -2,7 +2,7 @@
   "actorSpecification": 1,
   "name": "google-maps-leads-emails",
   "title": "Google Maps Scraper + Emails: Business Leads with Phone, Website, Socials",
-  "description": "Scrape Google Maps businesses with split address, categories, rating, review distribution, hours, coordinates, phone and website, plus emails and social profiles from each website. Place and contact events are priced separately. No login, no API key.",
+  "description": "Google Maps scraper with emails built in: phone, website, split address, rating, star breakdown, hours & coordinates, plus emails and socials from each business website. No API key. $0.003/place + $0.001 only when the site loads. Ready-to-call B2B lead lists.",
   "version": "1.0",
   "buildTag": "latest",
   "input": "./input_schema.json",

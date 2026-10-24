@@ -7,7 +7,7 @@
       "title": "Search terms",
       "type": "array",
       "editor": "stringList",
-      "description": "What you'd type into Google Maps, e.g. dentist, plumber, coffee shop.",
+      "description": "What you'd type into Google Maps, one per line, e.g. dentist, plumber, roofing contractor. Use distinct terms: near-duplicates add time, not leads.",
       "prefill": [
         "dentist"
       ]
@@ -16,7 +16,7 @@
       "title": "Location",
       "type": "string",
       "editor": "textfield",
-      "description": "City, region or ZIP, e.g. Austin, TX. Leave empty if your search terms already include it.",
+      "description": "City, region or ZIP, e.g. Austin, TX or 33614. Leave empty if your search terms already include a place.",
       "prefill": "Austin, TX"
     },
     "maxPlacesPerSearch": {
@@ -25,14 +25,14 @@
       "minimum": 1,
       "maximum": 500,
       "default": 20,
-      "description": "Google Maps lists up to ~120 places per search; split big areas into several locations or terms."
+      "description": "Leads to collect per search term. Google Maps lists up to ~120 places per search, so split big areas into several locations or terms."
     },
     "extractContacts": {
       "title": "Extract emails & socials from websites",
       "type": "boolean",
       "default": true,
       "prefill": true,
-      "description": "On by default. Visits each business website (home + contact/about pages) for emails, phones and social profiles. Turn off to skip website visits."
+      "description": "Visits each business's website (home, contact and about pages) to collect emails, phone numbers and social profiles. Adds $0.001 per place, charged only when the site loads. Turn off for places-only data at $0.003 each."
     },
     "maxContactPages": {
       "title": "Max website pages per business",
@@ -40,7 +40,7 @@
       "minimum": 1,
       "maximum": 6,
       "default": 3,
-      "description": "Home page plus contact and about pages, up to this many, when email extraction is on."
+      "description": "How many pages per website to scan for contacts: home page first, then contact and about pages. More pages can find more emails but take a little longer."
     },
     "maxReviews": {
       "title": "Max reviews per place",
@@ -48,7 +48,7 @@
       "minimum": 0,
       "maximum": 8,
       "default": 0,
-      "description": "How many Google reviews to keep from the place payload. 0 leaves reviews empty. This does not open extra review pages."
+      "description": "Keep up to this many Google reviews per place (0\u20138). 0 leaves reviews empty. This doesn't open extra review pages."
     },
     "minRating": {
       "title": "Minimum rating",
@@ -56,32 +56,32 @@
       "minimum": 0,
       "maximum": 5,
       "default": 0,
-      "description": "Skip places rated below this."
+      "description": "Only keep places rated at or above this many stars (0 keeps everything)."
     },
     "skipClosed": {
       "title": "Skip closed places",
       "type": "boolean",
       "default": false,
-      "description": "Skip closed places"
+      "description": "Leave out places Google marks as temporarily or permanently closed."
     },
     "language": {
       "title": "Language",
       "type": "string",
       "editor": "textfield",
       "default": "en",
-      "description": "Language"
+      "description": "Language code for Google Maps results, e.g. en, es, de, fr."
     },
     "startUrls": {
       "title": "Google Maps search URLs (optional)",
       "type": "array",
       "editor": "requestListSources",
-      "description": "Direct Google Maps search URLs, used in addition to search terms."
+      "description": "Optional. Paste Google Maps search URLs to scrape them in addition to the search terms."
     },
     "proxyConfiguration": {
       "title": "Proxy",
       "type": "object",
       "editor": "proxy",
-      "description": "Apify datacenter proxy works for most runs; switch to residential if you see blocks.",
+      "description": "The Apify datacenter proxy works for most runs. Switch to residential only if you see blocks.",
       "prefill": {
         "useApifyProxy": true
       },

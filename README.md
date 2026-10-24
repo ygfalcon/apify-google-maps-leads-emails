@@ -1,51 +1,34 @@
-# Google Maps Scraper + Emails: business leads with phone, website and socials
+# 📍 Google Maps Scraper + Emails: Business Leads with Phone, Website & Socials
 
-Get a lead list from Google Maps in one run: business name, categories, phone, split address, website, rating, review count and star distribution, opening hours, photo count, coordinates, place ID, plus emails and social profiles pulled from each business website. No login and no Google API key.
+**Type a business type and a city, get a ready-to-call lead list.** Every Google Maps result comes with phone, website, full address, rating and star breakdown, hours and coordinates, plus **emails and social profiles pulled from the business's own website**, all in the same run. No login, no Google API key, no add-ons to configure.
 
-## Why this one
+## 🎯 Who it's for
+- **Agencies and freelancers** prospecting local businesses (web design, SEO, ads, reputation management)
+- **B2B sales teams** building territory lists for cold email and cold calling
+- **SaaS and service companies** selling to restaurants, clinics, contractors, salons, gyms and more
+- **Market researchers** mapping competitors, ratings and review volume by city
+- **Developers and AI agents** that need local business data behind a simple API
 
-| | This actor | compass/crawler-google-places |
-|---|---|---|
-| Address parts, categories, star distribution, photo count, closed flags | Yes | Yes |
-| Description, menu and reservation links, optional reviews | Yes, when Google includes them in the place payload | Yes |
-| Emails and socials in the same run | Yes | Paid add-on |
-| Price per 1,000 leads with contacts | **$4** ($0.003 place + $0.001 contacts) | About $1.50–$4, contacts extra |
-| Unreachable websites | Contact event is not charged | Varies |
-| List scroll vs place details | Browser only scrolls the list. Details and websites are parallel HTTP | Browser page per place |
+## 🚀 Why this one
+- 📧 **Emails and socials built in.** Contact enrichment is on by default and visits each business's home, contact and about pages. There's no separate add-on to find and enable.
+- 💸 **Two flat prices, no tiers.** $0.003 per place and $0.001 when the website was actually reached. Unreachable sites aren't charged for contacts.
+- ⚡ **Fast.** Only the results list uses a browser. Place details and websites are fetched in parallel over HTTP, and each lead is saved as soon as it's done. In our measured test, 50 Tampa plumbers *with* contacts took about 10 seconds.
+- 🧱 **Spreadsheet-ready rows.** The address is split into street, neighborhood, city, state, postal code and country, there are five star-count columns, and `contactsStatus` tells you why a row has no email.
+- ⭐ **Quality filters.** Set a minimum rating, skip closed places, and optionally keep up to 8 reviews per place.
+- 🔌 **Works everywhere.** Export CSV, Excel or JSON, or connect through the API, Zapier, Make, Google Sheets or the Apify MCP server.
 
-Popular times and price level are read when Google sends them. Logged-out place responses often omit popular times, and the October 2026 samples had no price level string. Photo files are not downloaded; `imagesCount` is the count from the listing.
-
-## Input
+## ⚡ Quick start
+1. Enter **Search terms**, e.g. `dentist`, `plumber`, `roofing contractor`.
+2. Enter a **Location**, e.g. `Austin, TX`.
+3. Set **Max places per search term** and click **Start**.
 
 ```json
 { "searchTerms": ["plumber"], "location": "Tampa, FL", "maxPlacesPerSearch": 50, "extractContacts": true }
 ```
 
-`extractContacts` defaults to on, including when the input omits it. Set it to false to skip website visits and pay only the place event. A saved Apify task keeps the input it was stored with: if "Extract emails & socials from websites" is unchecked, that task still skips enrichment until the box is checked.
+> 💡 Google Maps shows up to about 120 places per search. To cover a big metro area, add several nearby cities or ZIP codes, or several distinct search terms.
 
-`maxReviews` defaults to 0. Set it to 1–8 to keep that many reviews from the place payload. That does not open extra review pages.
-
-The Output tab uses the Leads view. That view includes the split address, the five star-count columns, opening hours, and `contactsStatus` (`ok`, `skipped`, `no_website`, or `website_unreachable`). `skipped` means this run did not visit websites.
-
-Google Maps shows up to about 120 places per search. For bigger areas, run several locations or several search terms.
-
-## Measured run (local, no proxy, 23 Oct 2026)
-
-`plumbers` in Tampa, FL, `maxPlacesPerSearch: 50`, `extractContacts: true`.
-
-| Phase | Time |
-|---|---|
-| List scroll | 2.9s (58 cards found, 50 kept) |
-| Place detail HTTP | 435ms average, 0 failures, parallel |
-| Website enrichment | 1.3s average, 49 sites, 107 pages |
-| Wall clock, first saved through last | **10.5s** (a repeat was 9.0s) |
-
-Fill on those 50 places: rating, review count, star distribution, categories, phone, coordinates, place ID and photo count on all 50. Website on 49. Opening hours and street/city/postal code on 43. Contact fetch succeeded for 46, with an email on 28 and at least one social profile on 36.
-
-The same pipeline on Gramercy Tavern returned the description, an OpenTable reservation link, 10,090 photos, the star distribution, and two reviews when `maxReviews` was 2.
-
-## Example output
-
+## 📊 Sample output (real result from a test run, 23 Oct 2026)
 ```json
 {
   "title": "EVERYDAYPLUMBER.com",
@@ -73,34 +56,59 @@ The same pipeline on Gramercy Tavern returned the description, an OpenTable rese
 }
 ```
 
-## Pricing (unchanged, pay per event)
-
-- **place-scraped**: $0.003 per unique business
-- **contacts-enriched**: $0.001 per business whose website was reached
-
-1,000 leads with contacts are $4. `extractContacts` is on unless the input sets it to false, which is $3 per 1,000.
-
-### Platform cost per 1,000 places
-
-Scaled linearly from the 50-place run above, at 1 GB, using Apify's published unit prices ($0.20 per compute unit, $0.20 per GB of external transfer, $0.005 per 1,000 dataset writes):
-
-| | Per 1,000 with contacts |
+### Measured run: "plumbers" in Tampa, FL (50 places, contacts on, local, no proxy)
+| | Result |
 |---|---|
-| Compute | $0.012 |
-| Transfer (place pages + websites) | $0.180 |
-| Dataset writes | $0.005 |
-| **Total** | **$0.20** |
+| Wall clock, first lead to last | **10.5 s** (a repeat run took 9.0 s) |
+| Rating, reviews, star distribution, categories, phone, coordinates, place ID | 50 / 50 |
+| Website | 49 / 50 |
+| Opening hours and split address | 43 / 50 |
+| Website reached | 46 |
+| **At least one email** | **28** |
+| At least one social profile | 36 |
 
-Datacenter proxy is not billed per GB. Residential proxy is about $8/GB, and this run moved about 0.9 GB per 1,000 places, so residential would erase the margin. The default proxy is Apify datacenter.
+Results vary by niche and city. Many small businesses don't publish an email on their site.
 
-Developer revenue after Apify's 20% is $3.20 per 1,000 contacted leads. $0.20 of platform cost is about a 94% margin on that net. Event prices were left unchanged so they can be revised against this cost.
+## 💵 Pricing, in plain English
+| Event | When it's charged | Price |
+|---|---|---|
+| `place-scraped` | Each unique business saved | **$0.003** |
+| `contacts-enriched` | Only when that business's website was reached | **$0.001** |
 
-The default run timeout in `.actor/actor.json` is 3600 seconds. A 50-place run no longer needs the old 300 second cap, and a larger run is not cut off at five minutes.
+**1,000 leads with contact enrichment cost at most $4.** That's $3 for places, plus $1 only if every website loads. Turn `extractContacts` off and it's $3 per 1,000. Platform usage is included.
 
-## Use with AI agents
+## 💡 Use cases
+- Cold-email and cold-call lists for any local niche
+- Finding businesses with no website or weak reviews to pitch web design or reputation services
+- Competitor mapping: who ranks, their ratings and their review counts
+- Territory planning with coordinates and postal codes
+- Enriching a CRM (HubSpot, Pipedrive, Salesforce) through Zapier or Make
+- Feeding local business data to AI sales agents through the API or MCP
 
-Call it through the Apify MCP server or the Apify API. Every item is one flat object.
+## 🧾 Output fields
+`title`, `category`, `categories`, `address`, `street`, `neighborhood`, `city`, `state`, `postalCode`, `countryCode`, `phone`, `website`, `rating`, `reviewsCount`, `reviewsDistribution`, `imagesCount`, `openingHours`, `location`, `placeId`, closed flags, `emails`, `phones` from the website, `socials`, `contactsStatus` (`ok`, `skipped`, `no_website`, `website_unreachable`), and optional `reviews`. Description, menu and reservation links, popular times and price level are included when Google sends them in the place data. Logged-out responses often leave out popular times. Photo files aren't downloaded, but `imagesCount` is included.
 
-## Notes
+## ❓ FAQ
+**Do I need a Google API key or account?**
+No. The actor collects public Google Maps data without logging in.
 
-Only public data is collected. You are responsible for using contact data lawfully (GDPR/CAN-SPAM). The list is scrolled in one browser. Place details and contact pages are fetched over HTTP with a concurrency of 20, and each place is written to the dataset as soon as that place is done.
+**Why do some rows have no email?**
+Check `contactsStatus`. `no_website` means the listing has no site, and `website_unreachable` means the site didn't load (you aren't charged for contacts). `ok` with an empty `emails` field means the site doesn't publish an email.
+
+**How do I get more than ~120 results?**
+Split the area into several locations (neighborhoods, ZIPs or nearby cities) or use several distinct search terms.
+
+**Can I get reviews?**
+Yes. Set `maxReviews` from 1 to 8 to keep that many reviews per place. It doesn't open extra review pages.
+
+**Which proxy should I use?**
+The default Apify datacenter proxy works for most runs. Switch to residential only if you see blocks.
+
+**Is it legal?**
+It collects only publicly available business data. You're responsible for using contact data lawfully (GDPR, CAN-SPAM and similar laws).
+
+**Saved task not returning emails?**
+A saved Apify task keeps its old input. Make sure "Extract emails & socials from websites" is checked in that task.
+
+---
+*Keywords: Google Maps scraper, Google Maps email extractor, Google Maps leads, local business leads, business email finder, Google Places scraper without API, lead generation tool, B2B prospecting, contact scraper, phone number scraper, Google Maps data export to CSV and Excel.*
