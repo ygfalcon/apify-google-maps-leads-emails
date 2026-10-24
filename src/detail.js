@@ -16,10 +16,11 @@ export function extractPreviewUrl(html) {
     return `https://www.google.com${path}`;
 }
 
-async function defaultFetch(url, { proxyUrl, timeoutMs = 12000 } = {}) {
+async function defaultFetch(url, { proxyUrl, timeoutMs = 12000, signal } = {}) {
     const res = await gotScraping({
         url,
         proxyUrl,
+        signal,
         timeout: { request: timeoutMs },
         followRedirect: true,
         retry: { limit: 0 },
@@ -34,26 +35,56 @@ async function defaultFetch(url, { proxyUrl, timeoutMs = 12000 } = {}) {
     return { status: res.statusCode, body, bytes: Buffer.byteLength(body) };
 }
 
+export function shouldRetryDetail(error) {
+    return error === 'place_page_failed' || error === 'preview_failed' || error === 'preview_url_missing' || error === 'hard_timeout';
+}
+
 export async function fetchPlaceDetail(placeUrl, options = {}) {
     const fetchImpl = options.fetchImpl || defaultFetch;
+    const timeoutMs = options.timeoutMs ?? 12000;
     const started = Date.now();
+    const deadline = started + timeoutMs;
     let bytes = 0;
-    const pageUrl = withLanguage(placeUrl, options.language || 'en');
-    const html = await fetchImpl(pageUrl, options);
-    bytes += html.bytes || 0;
-    if (!html.body || (html.status && html.status >= 400)) {
-        return { error: 'place_page_failed', place: null, bytes, ms: Date.now() - started };
+    const hop = async (url) => {
+        const remaining = Math.max(1, deadline - Date.now());
+        if (Date.now() >= deadline) throw new Error('hard_timeout');
+        const controller = new AbortController();
+        let timer;
+        try {
+            return await Promise.race([
+                fetchImpl(url, { ...options, signal: controller.signal, timeoutMs: remaining }),
+                new Promise((_, reject) => {
+                    timer = setTimeout(() => {
+                        controller.abort();
+                        reject(new Error('hard_timeout'));
+                    }, remaining);
+                }),
+            ]);
+        } finally {
+            clearTimeout(timer);
+        }
+    };
+    try {
+        const pageUrl = withLanguage(placeUrl, options.language || 'en');
+        const html = await hop(pageUrl);
+        bytes += html?.bytes || 0;
+        if (!html?.body || (html.status && html.status >= 400)) {
+            return { error: 'place_page_failed', place: null, bytes, ms: Date.now() - started };
+        }
+        const previewUrl = extractPreviewUrl(html.body);
+        if (!previewUrl) return { error: 'preview_url_missing', place: null, bytes, ms: Date.now() - started };
+        const preview = await hop(previewUrl);
+        bytes += preview?.bytes || 0;
+        if (!preview?.body || (preview.status && preview.status >= 400)) {
+            return { error: 'preview_failed', place: null, bytes, ms: Date.now() - started };
+        }
+        const place = parsePreviewPayload(preview.body, { maxReviews: options.maxReviews || 0 });
+        if (!place?.title) return { error: 'place_parse_failed', place: null, bytes, ms: Date.now() - started };
+        return { error: null, place, bytes, ms: Date.now() - started };
+    } catch (err) {
+        const error = err?.message === 'hard_timeout' ? 'hard_timeout' : (err?.message || 'place_page_failed');
+        return { error, place: null, bytes, ms: Date.now() - started };
     }
-    const previewUrl = extractPreviewUrl(html.body);
-    if (!previewUrl) return { error: 'preview_url_missing', place: null, bytes, ms: Date.now() - started };
-    const preview = await fetchImpl(previewUrl, options);
-    bytes += preview.bytes || 0;
-    if (!preview.body || (preview.status && preview.status >= 400)) {
-        return { error: 'preview_failed', place: null, bytes, ms: Date.now() - started };
-    }
-    const place = parsePreviewPayload(preview.body, { maxReviews: options.maxReviews || 0 });
-    if (!place?.title) return { error: 'place_parse_failed', place: null, bytes, ms: Date.now() - started };
-    return { error: null, place, bytes, ms: Date.now() - started };
 }
 
 function withLanguage(url, language) {

@@ -1,12 +1,30 @@
 import { promises as dns } from 'node:dns'
 import { gotScraping } from 'got-scraping'
 import {
-    extractPage,
+    extractSocials,
     finalizeContacts,
     hostFromUrl,
     mergeSocials,
     pageKindFromUrl,
 } from './extract.js'
+import { getScanPool } from './scan-pool.js'
+
+const NOREPLY = /^(no-?reply|do-?not-?reply|notifications?|mailer-daemon|bounce|unsubscribe|newsletter|daemon|postmaster|webmaster|root|hostmaster|donotreply)$/i
+
+function hasUsefulEmail(rows) {
+    return rows.some((row) => {
+        const local = String(row?.email || '').split('@')[0]
+        return local && !NOREPLY.test(local)
+    })
+}
+
+function hasSocial(lists) {
+    return lists.some((list) => list && Object.values(list).some((urls) => urls?.length))
+}
+
+function dropGuesses(queue) {
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].guessed) queue.splice(i, 1)
+}
 
 const mxCache = new Map()
 
@@ -61,8 +79,9 @@ export async function checkMx(domain, { resolveMx = dns.resolveMx, timeoutMs = 1
     return pending
 }
 
-export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = gotScraping } = {}) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = gotScraping, attempts = 2 } = {}) {
+    const tries = Math.max(1, Number(attempts) || 1)
+    for (let attempt = 0; attempt < tries; attempt++) {
         const controller = new AbortController()
         let timer
         try {
@@ -77,16 +96,17 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
                 throwHttpErrors: false,
                 headers: { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8' },
             }), new Promise((_, reject) => {
-                timer = setTimeout(() => { controller.abort(); reject(new Error('hard_timeout')) }, timeoutMs + 2000)
+                timer = setTimeout(() => { controller.abort(); reject(new Error('hard_timeout')) }, timeoutMs)
             })])
             const status = response.statusCode ?? response.status
             const headers = response.headers || {}
             const type = String(headers['content-type'] || headers['Content-Type'] || '')
             const body = String(response.body ?? '')
+            const bytes = Buffer.byteLength(body)
             if (status >= 400 && status < 500) return null
             const looksHtml = type.includes('html') || type.includes('xml') || (!type && body.includes('<'))
             if (status < 400 && looksHtml && body.includes('<')) {
-                return { html: body.slice(0, 1_500_000), finalUrl: response.url || url }
+                return { html: body.slice(0, 1_500_000), finalUrl: response.url || url, bytes }
             }
             if (status >= 500) continue
             return null
@@ -101,11 +121,11 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
 
 async function openHomepage(url, fetchOptions) {
     // Try HTTPS first even for http:// listings (most sites support it and some networks block port 80),
-    // then fall back to plain HTTP.
+    // then fall back to plain HTTP. The protocol switch is the retry, so HTTP is attempted once.
     const secure = url.replace(/^http:\/\//, 'https://')
-    const first = await fetchHtml(secure, fetchOptions)
+    const first = await fetchHtml(secure, { ...fetchOptions, attempts: 2 })
     if (first) return first
-    return fetchHtml(secure.replace('https://', 'http://'), fetchOptions)
+    return fetchHtml(secure.replace('https://', 'http://'), { ...fetchOptions, attempts: 1 })
 }
 
 export async function enrichWebsite(website, {
@@ -117,6 +137,7 @@ export async function enrichWebsite(website, {
     fetchImpl,
     mxCache: cache,
     timeoutMs = 12000,
+    scanPool,
 } = {}) {
     const empty = {
         emails: [],
@@ -143,11 +164,16 @@ export async function enrichWebsite(website, {
         return empty
     }
     const fetchOptions = { proxyUrl, fetchImpl, timeoutMs }
+    const scan = scanPool || getScanPool()
+    let bytes = 0
+    const seeded = extractSocials(start.href)
     const home = await openHomepage(start.href, fetchOptions)
     if (!home) {
+        empty.socials = mergeSocials([seeded])
         empty.error = 'website_unreachable'
         return empty
     }
+    bytes += home.bytes || 0
 
     const pageBudget = Math.min(Math.max(1, maxPages), 10)
     const seen = new Set()
@@ -155,20 +181,21 @@ export async function enrichWebsite(website, {
     const emailRows = []
     const people = []
     const phoneEntries = []
-    const socialLists = []
+    const socialLists = [seeded]
     const pages = []
     const startHost = hostFromUrl(home.finalUrl)
     const startIsLinktree = pageKindFromUrl(home.finalUrl) === 'linktree'
 
-    const consume = (page, kind) => {
+    const consume = async (page, kind) => {
         if (pages.includes(page.finalUrl)) return
-        const extracted = extractPage(page.html, page.finalUrl, kind)
-        emailRows.push(...extracted.emails.map((row) => ({ ...row, mxValid: null })))
-        people.push(...extracted.people)
-        phoneEntries.push(...extracted.phones)
-        socialLists.push(extracted.socials)
+        // Regex scanning runs in a worker so a pathological page can be killed without freezing the run.
+        const extracted = await scan.scan(page.html, page.finalUrl, kind)
+        emailRows.push(...(extracted.emails || []).map((row) => ({ ...row, mxValid: null })))
+        people.push(...(extracted.people || []))
+        phoneEntries.push(...(extracted.phones || []))
+        socialLists.push(extracted.socials || {})
         pages.push(page.finalUrl)
-        for (const link of extracted.links) {
+        for (const link of extracted.links || []) {
             if (kind === 'linktree' && !startIsLinktree) continue
             if (seen.has(link.url)) continue
             queue.push(link)
@@ -176,12 +203,15 @@ export async function enrichWebsite(website, {
     }
 
     seen.add(home.finalUrl)
-    consume(home, startIsLinktree ? 'linktree' : 'home')
+    await consume(home, startIsLinktree ? 'linktree' : 'home')
+    if (hasUsefulEmail(emailRows) && hasSocial(socialLists)) dropGuesses(queue)
 
     let extra = 0
     let attempts = 0
-    const attemptCap = pageBudget + 3
+    const attemptCap = pageBudget + 2
     while (extra < pageBudget - 1 && attempts < attemptCap && queue.length) {
+        if (hasUsefulEmail(emailRows) && hasSocial(socialLists)) dropGuesses(queue)
+        if (!queue.length) break
         queue.sort((a, b) => b.score - a.score || a.url.localeCompare(b.url))
         const batch = []
         while (batch.length < Math.min(4, pageBudget - 1 - extra) && queue.length && attempts + batch.length < attemptCap) {
@@ -194,13 +224,14 @@ export async function enrichWebsite(website, {
         attempts += batch.length
         const fetched = await Promise.all(batch.map(async (link) => ({
             link,
-            page: await fetchHtml(link.url, fetchOptions),
+            page: await fetchHtml(link.url, { ...fetchOptions, attempts: 1 }),
         })))
         for (const { link, page } of fetched) {
             if (!page || extra >= pageBudget - 1) continue
+            bytes += page.bytes || 0
             extra += 1
             const kind = pageKindFromUrl(page.finalUrl || link.url)
-            consume(page, kind === 'other' ? (link.family === 'other' ? 'other' : link.family) : kind)
+            await consume(page, kind === 'other' ? (link.family === 'other' ? 'other' : link.family) : kind)
         }
     }
 
@@ -221,6 +252,7 @@ export async function enrichWebsite(website, {
         pagesScanned: pages.length,
         pages,
         finalUrl: home.finalUrl,
+        bytes,
         error: null,
     }
 }
