@@ -201,6 +201,7 @@ async function processPlace({ url, term, rank, gate }) {
         return;
     }
     const place = loaded.place;
+    if (place.website && place.title) enrichWebsite.noteTitle(place.website, place.title);
     if (checked.skipClosed && (place.permanentlyClosed || place.temporarilyClosed)) return;
     if (checked.minRating && (place.rating ?? 0) < checked.minRating) return;
     // A nonsense query can make Google jump to the city itself. Skip places that are not businesses.
