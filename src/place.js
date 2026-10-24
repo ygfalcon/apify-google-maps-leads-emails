@@ -32,6 +32,8 @@ export function cleanWebsite(raw) {
         }
         const url = new URL(href.startsWith('http') ? href : `https://${href}`);
         if (!/^https?:$/.test(url.protocol)) return null;
+        url.username = '';
+        url.password = '';
         for (const key of [...url.searchParams.keys()]) {
             if (key.startsWith('utm_') || key === 'gclid' || key === 'fbclid') url.searchParams.delete(key);
         }

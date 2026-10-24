@@ -7,11 +7,17 @@ export function emptyScan() {
     return { emails: [], phones: [], socials: emptySocials(), people: [], links: [] };
 }
 
-export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPath } = {}) {
+function failedScan() {
+    return { ...emptyScan(), failed: true };
+}
+
+export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPath, createWorker } = {}) {
     const path = workerPath ?? new URL('./extract-worker.js', import.meta.url);
+    const limit = Math.max(1, size);
     let closed = false;
     let seq = 0;
     let failures = 0;
+    let pumping = false;
     const workers = [];
     const idle = [];
     const queue = [];
@@ -28,28 +34,22 @@ export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPa
         state.timer = null;
         const job = state.job;
         state.job = null;
-        if (job) job.resolve(result || emptyScan());
-    }
-
-    function kill(state) {
-        const worker = state.worker;
-        settle(state, emptyScan());
-        drop(state);
-        worker?.terminate();
-        if (!closed && failures < 8) spawn();
-        pump();
+        if (job) job.resolve(result || failedScan());
     }
 
     function spawn() {
-        // Don't inherit parent flags such as --input-type; those crash a file-backed worker and would drop every contact.
-        const worker = new Worker(path, { execArgv: [] });
-        worker.unref();
+        if (closed || workers.length >= limit) return;
+        const worker = createWorker ? createWorker() : new Worker(path, { execArgv: [] });
+        const release = () => worker.unref?.();
+        release();
+        worker.on?.('online', release);
         const state = { worker, job: null, timer: null };
         worker.on('message', (msg) => {
             if (!state.job || !msg || msg.id !== state.job.id) return;
             failures = 0;
             idle.push(state);
-            settle(state, msg.result || emptyScan());
+            const result = msg.result && !msg.error ? msg.result : failedScan();
+            settle(state, result);
             pump();
         });
         worker.on('error', () => {
@@ -60,10 +60,14 @@ export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPa
             state.job = null;
             drop(state);
             if (job) {
-                // The worker failed to start or crashed. A timeout kill does not land here.
-                // Falling back keeps contacts when the worker cannot boot; a hung regex is killed instead.
-                try { job.resolve(extractPage(job.html, job.baseUrl, job.pageKind)); }
-                catch { job.resolve(emptyScan()); }
+                // The worker failed to start. A timeout kill does not land here.
+                // A short page is scanned inline so a missing worker still finds contacts.
+                // A huge page is not: that fallback is what froze the run.
+                if (String(job.html || '').length > 100_000) job.resolve(failedScan());
+                else {
+                    try { job.resolve(extractPage(job.html, job.baseUrl, job.pageKind)); }
+                    catch { job.resolve(failedScan()); }
+                }
             }
             if (!closed && failures < 3) spawn();
             pump();
@@ -73,32 +77,54 @@ export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPa
         return state;
     }
 
+    function kill(state) {
+        const worker = state.worker;
+        settle(state, failedScan());
+        drop(state);
+        try { worker?.terminate?.(); } catch { /* already gone */ }
+        if (!closed && failures < 8) spawn();
+        pump();
+    }
+
     function pump() {
-        if (closed) return;
-        while (queue.length && idle.length) {
-            const state = idle.pop();
-            const job = queue.shift();
-            state.job = job;
-            state.timer = setTimeout(() => kill(state), timeoutMs);
-            try {
-                state.worker.postMessage({
-                    type: 'scan',
-                    id: job.id,
-                    html: job.html,
-                    baseUrl: job.baseUrl,
-                    pageKind: job.pageKind,
-                });
-            } catch {
-                kill(state);
+        if (pumping || closed) return;
+        pumping = true;
+        try {
+            while (queue.length && idle.length) {
+                const state = idle.pop();
+                const job = queue.shift();
+                state.job = job;
+                state.timer = setTimeout(() => kill(state), timeoutMs);
+                try {
+                    state.worker.postMessage({
+                        type: 'scan',
+                        id: job.id,
+                        html: job.html,
+                        baseUrl: job.baseUrl,
+                        pageKind: job.pageKind,
+                    });
+                } catch {
+                    clearTimeout(state.timer);
+                    failures += 1;
+                    settle(state, failedScan());
+                    drop(state);
+                    try { state.worker.terminate?.(); } catch { /* already gone */ }
+                    if (!closed && failures < 3) spawn();
+                }
             }
+            if (!idle.length && queue.length && failures >= 3) {
+                for (const job of queue.splice(0)) job.resolve(failedScan());
+            }
+        } finally {
+            pumping = false;
         }
     }
 
-    while (workers.length < Math.max(1, size)) spawn();
+    while (workers.length < limit) spawn();
 
     return {
         scan(html, baseUrl, pageKind = 'home') {
-            if (closed) return Promise.resolve(emptyScan());
+            if (closed) return Promise.resolve(failedScan());
             return new Promise((resolve) => {
                 queue.push({ id: ++seq, html: String(html || ''), baseUrl, pageKind, resolve });
                 pump();
@@ -106,7 +132,7 @@ export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPa
         },
         async close() {
             closed = true;
-            for (const job of queue.splice(0)) job.resolve(emptyScan());
+            for (const job of queue.splice(0)) job.resolve(failedScan());
             const current = [...workers];
             workers.length = 0;
             idle.length = 0;
@@ -114,8 +140,8 @@ export function createScanPool({ size = 1, timeoutMs = SCAN_TIMEOUT_MS, workerPa
                 clearTimeout(state.timer);
                 const job = state.job;
                 state.job = null;
-                if (job) job.resolve(emptyScan());
-                await state.worker.terminate();
+                if (job) job.resolve(failedScan());
+                try { await state.worker.terminate?.(); } catch { /* already gone */ }
             }));
         },
     };

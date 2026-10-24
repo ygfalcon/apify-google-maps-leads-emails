@@ -238,11 +238,11 @@ export function deobfuscate(text) {
     t = t.replace(/\s*[\[({]\s*(?:at|@)\s*[\])}]\s*/gi, '@')
     t = t.replace(/\s*[\[({]\s*(?:dot|period)\s*[\])}]\s*/gi, '.')
     t = t.replace(/([a-z0-9._%+-]{1,64})\s+at\s+([a-z0-9-]+(?:\s+dot\s+[a-z0-9-]+)+)/gi, (full, local, rest) => {
-        if (SPACED_LOCAL_BLOCK.has(local.toLowerCase())) return full
+        if (!isObfuscatedLocal(local)) return full
         return `${local}@${rest.replace(/\s+dot\s+/gi, '.')}`
     })
     t = t.replace(/([a-z0-9._%+-]{1,64})\s+at\s+((?:[a-z0-9-]+\.)+[a-z]{2,24})/gi, (full, local, domain) => {
-        if (SPACED_LOCAL_BLOCK.has(local.toLowerCase()) || local.length < 2) return full
+        if (!isObfuscatedLocal(local)) return full
         return `${local}@${domain}`
     })
     t = t.replace(/([a-z0-9._%+-])\s*@\s*([a-z0-9.-])/gi, '$1@$2')
@@ -260,8 +260,16 @@ export function htmlToText(html) {
 }
 
 // A phone or a short word glued onto the front of a real local part ("0info", "312.600.2777hi", "ushello").
+function isObfuscatedLocal(local) {
+    const value = String(local || '').toLowerCase()
+    if (value.length < 2 || SPACED_LOCAL_BLOCK.has(value)) return false
+    // "shop at store.example.com" is a sentence. "info at" and "jane.doe at" are obfuscated mailboxes.
+    return ROLE_LOCAL.has(value) || /[._%+-]/.test(value)
+}
+
 function hasGluedLocal(local) {
     return /^\d{3}[.\-]?\d{3}[.\-]?\d{4}/.test(local)
+        || /^\d{2,}[a-z]/i.test(local)
         || /^\d{7,}[a-z]/i.test(local)
         || /^\d[a-z]/i.test(local)
 }

@@ -3,6 +3,7 @@
 // whole area, so it is not split.
 
 export const MAPS_SEARCH_CAP = 120;
+export const MAX_SPLIT_REQUESTS = 200;
 
 export function feedNeedsRetry({ found, wanted, ended, retryCount = 0, depth = 0, cap = MAPS_SEARCH_CAP } = {}) {
     if (ended || found >= wanted) return false;
@@ -12,7 +13,8 @@ export function feedNeedsRetry({ found, wanted, ended, retryCount = 0, depth = 0
 }
 
 export function shouldSplitArea({ found, wanted, depth = 0, maxDepth = 3, cap = MAPS_SEARCH_CAP } = {}) {
-    if (depth >= maxDepth) return false;
+    const level = Number(depth);
+    if (!Number.isFinite(level) || level < 0 || level >= maxDepth) return false;
     if (!(wanted > found)) return false;
     if (found < cap - 20) return false;
     return true;
@@ -50,7 +52,8 @@ export function childViews(view) {
 }
 
 export function mapsSearchUrl({ term, location, language = 'en', view } = {}) {
-    const hl = language || 'en';
+    const raw = String(language || '');
+    const hl = /^[a-z]{2,3}(?:-[a-z]{2,4})?$/i.test(raw) ? raw.toLowerCase() : 'en';
     if (!view) {
         const query = location ? `${term} in ${location}` : term;
         return `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=${hl}`;
@@ -59,6 +62,7 @@ export function mapsSearchUrl({ term, location, language = 'en', view } = {}) {
 }
 
 export function planAreaSplits({ found, wanted, depth = 0, view, term, location, language = 'en', seenKeys } = {}) {
+    if ((seenKeys?.size || 0) >= MAX_SPLIT_REQUESTS) return [];
     if (!view || !shouldSplitArea({ found, wanted, depth })) return [];
     const seen = seenKeys || new Set();
     const requests = [];
