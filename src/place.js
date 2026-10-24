@@ -112,18 +112,33 @@ function openingHours(d) {
     return lines.length ? lines : null;
 }
 
+export function classifyBusinessStatus(value) {
+    if (typeof value !== 'string') return null;
+    const text = value.trim();
+    if (!text || text.length > 80) return null;
+    // "Closed · Opens 9 AM Mon" and "Geschlossen · Öffnet …" are the open-now line, not a closure.
+    const openNow = /[·•]/.test(text) || /\b(?:opens|öffnet|oeffnet|reopens|geöffnet|geoeffnet|open 24|24 stunden)\b/i.test(text);
+    // "contemporary" contains "temporar", so the closure words stay specific.
+    const closureWord = /permanen|temporarily|vorübergehend|voruebergehend|dauerhaft/i.test(text);
+    if (openNow && !closureWord) return null;
+    if (/permanently[\s_-]*closed|closed[\s_-]*permanently|^closed$|^geschlossen$|dauerhaft\s+geschlossen|endgültig\s+geschlossen|endgueltig\s+geschlossen/i.test(text)) {
+        return 'permanently_closed';
+    }
+    if (/temporar(?:ily)?[\s_-]*closed|closed[\s_-]*temporar|vorübergehend|voruebergehend/i.test(text)) return 'temporarily_closed';
+    return null;
+}
+
 function closedOf(d) {
-    const candidates = [at(d, 88, 0), at(d, 34, 4, 4)].filter((v) => typeof v === 'string');
+    const candidates = [at(d, 88, 0), at(d, 34, 4, 4), at(d, 96, 10, 1, 0, 3, 2, 1)];
+    let temporary = false;
     for (const raw of candidates) {
-        const value = raw.trim();
-        if (!value || value.length > 40) continue;
-        if (/^closed$/i.test(value) || /permanently[_\s-]?closed/i.test(value)) {
+        const status = classifyBusinessStatus(raw);
+        if (status === 'permanently_closed') {
             return { permanentlyClosed: true, temporarilyClosed: false, closedStatus: 'permanently_closed' };
         }
-        if (/temporar/i.test(value)) {
-            return { permanentlyClosed: false, temporarilyClosed: true, closedStatus: 'temporarily_closed' };
-        }
+        if (status === 'temporarily_closed') temporary = true;
     }
+    if (temporary) return { permanentlyClosed: false, temporarilyClosed: true, closedStatus: 'temporarily_closed' };
     return { permanentlyClosed: false, temporarilyClosed: false, closedStatus: null };
 }
 
@@ -335,6 +350,9 @@ export function toDatasetItem(place, meta) {
         searchTerm: meta.searchTerm || null,
         rank: meta.rank ?? null,
         emails: meta.emails || [],
+        thirdPartyEmails: meta.thirdPartyEmails || [],
+        impressumOwner: meta.impressumOwner || null,
+        vatId: meta.vatId || null,
         socials: meta.socials || {},
         websitePhones: meta.websitePhones || [],
         contactsStatus: meta.contactsStatus || 'skipped',

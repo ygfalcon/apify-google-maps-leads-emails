@@ -2,6 +2,7 @@ import { gotScraping } from './http.js';
 import { parsePreviewPayload } from './place.js';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const HTTP_DETAIL_ERRORS = new Set(['place_page_failed', 'preview_failed', 'preview_url_missing', 'place_parse_failed']);
 
 export function extractPreviewUrl(html) {
     if (!html) return null;
@@ -39,10 +40,9 @@ export function shouldRetryDetail(error) {
     return error === 'place_page_failed' || error === 'preview_failed' || error === 'preview_url_missing' || error === 'hard_timeout';
 }
 
-export async function fetchPlaceDetail(placeUrl, options = {}) {
+async function loadPlace(placeUrl, options, started) {
     const fetchImpl = options.fetchImpl || defaultFetch;
     const timeoutMs = options.timeoutMs ?? 12000;
-    const started = Date.now();
     const deadline = started + timeoutMs;
     let bytes = 0;
     const hop = async (url) => {
@@ -85,6 +85,15 @@ export async function fetchPlaceDetail(placeUrl, options = {}) {
         const error = err?.message === 'hard_timeout' ? 'hard_timeout' : (err?.message || 'place_page_failed');
         return { error, place: null, bytes, ms: Date.now() - started };
     }
+}
+
+export async function fetchPlaceDetail(placeUrl, options = {}) {
+    const started = Date.now();
+    const first = await loadPlace(placeUrl, options, started);
+    // A proxy that drops the connection is retried once directly, inside the same deadline.
+    // An HTTP status (including a block) is returned and is not bypassed.
+    if (first.place || !options.proxyUrl || HTTP_DETAIL_ERRORS.has(first.error)) return first;
+    return loadPlace(placeUrl, { ...options, proxyUrl: undefined }, started);
 }
 
 function withLanguage(url, language) {

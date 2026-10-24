@@ -1,5 +1,6 @@
 // Website contact enrichment: emails, phones, social profiles. Plain HTTP (no browser), retries, small page budget.
 import { gotScraping } from './http.js';
+import { hostFromUrl, isThirdPartyEmail, isValidEmailSyntax } from './web/extract.js';
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,24}/g;
 const BAD_EMAIL = /\.(png|jpe?g|gif|svg|webp|css|js)$|@(example|domain|email|sentry|wixpress|sentry-next)\.|^(u00|x22)|@\d+x\./i;
@@ -7,7 +8,8 @@ const BAD_TLD = /\.(png|jpe?g|gif|svg|webp|avif|ico|bmp|css|js|json|php|html?|as
 const BAD_DOMAIN = /@(?:[a-z0-9-]+\.)*(example\.(com|org|net)|domain\.com|email\.com|yourdomain\.com|yoursite\.com|mysite\.com|website\.com|company\.com|sentry\.io|sentry\.wixpress\.com|wixpress\.com|godaddy\.com|placeholder\.com|test\.com)$/i;
 const BAD_LOCAL = /^(john\.wick|john\.doe|jane\.doe|user|name|your|yourname|youremail|test|email|example|sample|firstname\.lastname|first\.last|username|info@domain)@/i;
 export function isPlausibleEmail(e) {
-    if (!e || e.length >= 80 || BAD_EMAIL.test(e) || BAD_TLD.test(e) || BAD_DOMAIN.test(e) || BAD_LOCAL.test(e)) return false;
+    if (!isValidEmailSyntax(e)) return false;
+    if (e.length >= 80 || BAD_EMAIL.test(e) || BAD_TLD.test(e) || BAD_DOMAIN.test(e) || BAD_LOCAL.test(e)) return false;
     const [local, domain] = e.split('@');
     if (!local || !domain || domain.includes('..') || local.startsWith('.') || /^[0-9a-f]{24,}$/i.test(local)) return false;
     return true;
@@ -76,7 +78,10 @@ export function withDeadline(promise, ms, label = 'timeout') {
 }
 
 export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineMs = SITE_DEADLINE_MS, engine = engineEnrich } = {}) {
-    const out = { emails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0, error: null };
+    const out = {
+        emails: [], thirdPartyEmails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0,
+        impressumOwner: null, vatId: null, error: null,
+    };
     if (!website) return out;
     let r;
     try {
@@ -86,18 +91,56 @@ export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineM
         return out;
     }
     out.bytes = r.bytes || 0;
-    if (r.error) {
-        out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error;
-        out.emails = (r.emails || []).filter(isPlausibleEmail).slice(0, 10);
-        out.phones = (r.phones || []).slice(0, 5);
-        for (const [k, v] of Object.entries(r.socials || {})) if (v?.length) out.socials[k] = v;
-        out.pagesScanned = r.pagesScanned || 0;
-        return out;
-    }
-    out.emails = r.emails.filter(isPlausibleEmail).slice(0, 10);
-    out.phones = r.phones.slice(0, 5);
-    for (const [k, v] of Object.entries(r.socials)) if (v?.length) out.socials[k] = v;
-    out.pagesScanned = r.pagesScanned;
+    const host = hostFromUrl(r.finalUrl || website);
+    const plausible = (r.emails || []).filter(isPlausibleEmail);
+    out.emails = plausible.filter((email) => !isThirdPartyEmail(email, host)).slice(0, 10);
+    out.thirdPartyEmails = plausible.filter((email) => isThirdPartyEmail(email, host)).slice(0, 10);
+    if (r.error) out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error;
+    out.phones = (r.phones || []).slice(0, 5);
+    for (const [k, v] of Object.entries(r.socials || {})) if (v?.length) out.socials[k] = v;
+    out.pagesScanned = r.pagesScanned || 0;
+    out.impressumOwner = r.impressum?.owner || null;
+    out.vatId = r.impressum?.vatId || null;
     out.bestContact = r.bestContact ? { email: r.bestContact.email, name: r.bestContact.name, role: r.bestContact.role } : null;
     return out;
+}
+
+const TRACKING_PARAMS = new Set(['gclid', 'fbclid', 'gbraid', 'wbraid']);
+
+export function websiteCacheKey(website) {
+    const url = new URL(String(website).startsWith('http') ? website : `https://${website}`);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    const path = url.pathname.replace(/\/+$/, '');
+    const params = [...url.searchParams.entries()]
+        .filter(([key]) => {
+            const name = key.toLowerCase();
+            return !name.startsWith('utm_') && !TRACKING_PARAMS.has(name);
+        })
+        .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+    const query = params.map(([key, value]) => `${key}=${value}`).join('&');
+    return query ? `${host}${path}?${query}` : `${host}${path}`;
+}
+
+// One in-flight result per host + path. A failure is dropped so the next location can try again.
+export function createEnrichmentCache(enrich = enrichWebsite) {
+    const cache = new Map();
+    return async (website, opts) => {
+        let key;
+        try {
+            key = websiteCacheKey(website);
+        } catch {
+            return enrich(website, opts);
+        }
+        if (cache.has(key)) return cache.get(key);
+        const pending = enrich(website, opts);
+        cache.set(key, pending);
+        try {
+            const result = await pending;
+            if (result?.error) cache.delete(key);
+            return result;
+        } catch (err) {
+            cache.delete(key);
+            throw err;
+        }
+    };
 }

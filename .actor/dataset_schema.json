@@ -203,7 +203,19 @@
       },
       "emails": {
         "type": "array",
-        "description": "Emails found on the business website (empty if enrichment is off)."
+        "description": "Emails found on the business website (empty if enrichment is off). Third-party mailboxes are listed separately."
+      },
+      "thirdPartyEmails": {
+        "type": "array",
+        "description": "Emails whose domain is not this business and not a personal mailbox, such as a booking tool, a parent brand, or an agency."
+      },
+      "impressumOwner": {
+        "type": ["string", "null"],
+        "description": "Owner or managing director named on a German Impressum. Null outside Germany."
+      },
+      "vatId": {
+        "type": ["string", "null"],
+        "description": "VAT ID from a German Impressum, for example DE123456789. Null when the page has none."
       },
       "socials": {
         "type": "object",
@@ -237,6 +249,9 @@
           "categories",
           "phone",
           "emails",
+          "thirdPartyEmails",
+          "impressumOwner",
+          "vatId",
           "websitePhones",
           "website",
           "socials",
@@ -287,6 +302,16 @@
           "emails": {
             "label": "Emails",
             "format": "array"
+          },
+          "thirdPartyEmails": {
+            "label": "Third-party emails",
+            "format": "array"
+          },
+          "impressumOwner": {
+            "label": "Impressum owner"
+          },
+          "vatId": {
+            "label": "VAT ID"
           },
           "websitePhones": {
             "label": "Website phones",

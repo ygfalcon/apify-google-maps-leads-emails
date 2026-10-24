@@ -26,7 +26,7 @@
 { "searchTerms": ["plumber"], "location": "Tampa, FL", "maxPlacesPerSearch": 50, "extractContacts": true }
 ```
 
-> 💡 Google Maps shows up to about 120 places per search. To cover a big metro area, add several nearby cities or ZIP codes, or several distinct search terms.
+> 💡 Google Maps shows up to about 120 places per search. If you set the max above that and a search comes back full, the actor splits the map into closer views and keeps going. You can still add nearby cities, ZIP codes, or extra search terms.
 
 ## 📊 Sample output (real result from a test run, 23 Oct 2026)
 ```json
@@ -75,7 +75,7 @@ Results vary by niche and city. Many small businesses don't publish an email on 
 | `place-scraped` | Each unique business saved | **$0.0034** |
 | `contacts-enriched` | Only when that business's website was reached | **$0.0015** |
 
-**1,000 leads with contact enrichment cost at most $4.90.** That's $3.40 for places, plus $1.50 only if every website loads. Turn `extractContacts` off and it's $3.40 per 1,000. Platform usage is included.
+**1,000 leads with contact enrichment cost at most $4.90.** That's $3.40 for places, plus $1.50 only if every website loads. Turn `extractContacts` off and it's $3.40 per 1,000. Platform usage is included. Splitting a large area, and reading a German Impressum (owner and VAT ID), do not add a charge.
 
 ## 💡 Use cases
 - Cold-email and cold-call lists for any local niche
@@ -86,7 +86,7 @@ Results vary by niche and city. Many small businesses don't publish an email on 
 - Feeding local business data to AI sales agents through the API or MCP
 
 ## 🧾 Output fields
-`title`, `category`, `categories`, `address`, `street`, `neighborhood`, `city`, `state`, `postalCode`, `countryCode`, `phone`, `website`, `rating`, `reviewsCount`, `reviewsDistribution`, `imagesCount`, `openingHours`, `location`, `placeId`, closed flags, `emails`, `phones` from the website, `socials`, `contactsStatus` (`ok`, `skipped`, `no_website`, `website_unreachable`), and optional `reviews`. Description, menu and reservation links, popular times and price level are included when Google sends them in the place data. Logged-out responses often leave out popular times. Photo files aren't downloaded, but `imagesCount` is included.
+`title`, `category`, `categories`, `address`, `street`, `neighborhood`, `city`, `state`, `postalCode`, `countryCode`, `phone`, `website`, `rating`, `reviewsCount`, `reviewsDistribution`, `imagesCount`, `openingHours`, `location`, `placeId`, closed flags, `emails`, `thirdPartyEmails` (a booking tool, parent brand, or agency — not mixed into `emails`), `phones` from the website, `socials`, `impressumOwner` and `vatId` from a German Impressum, `contactsStatus` (`ok`, `skipped`, `no_website`, `website_unreachable`), and optional `reviews`. Description, menu and reservation links, popular times and price level are included when Google sends them in the place data. Logged-out responses often leave out popular times. Photo files aren't downloaded, but `imagesCount` is included.
 
 ## ❓ FAQ
 **Do I need a Google API key or account?**
@@ -96,13 +96,13 @@ No. The actor collects public Google Maps data without logging in.
 Check `contactsStatus`. `no_website` means the listing has no site, and `website_unreachable` means the site didn't load (you aren't charged for contacts). `ok` with an empty `emails` field means the site doesn't publish an email.
 
 **How do I get more than ~120 results?**
-Split the area into several locations (neighborhoods, ZIPs or nearby cities) or use several distinct search terms.
+Set **Max places per search term** above 120 (up to 500). When a search fills the feed, the actor automatically splits that map into four closer views and continues until it reaches your max or the businesses run out. A search that simply has fewer businesses is left as it is. You can still add neighborhoods, ZIPs, or extra terms yourself.
 
 **Can I get reviews?**
 Yes. Set `maxReviews` from 1 to 8 to keep that many reviews per place. It doesn't open extra review pages.
 
 **Which proxy should I use?**
-The default Apify datacenter proxy works for most runs. Switch to residential only if you see blocks.
+The default Apify datacenter proxy stays on and works for most runs. If the proxy cannot be reached, the run continues with a direct connection instead of timing out. Switch to residential only if you see blocks.
 
 **Is it legal?**
 It collects only publicly available business data. You're responsible for using contact data lawfully (GDPR, CAN-SPAM and similar laws).
