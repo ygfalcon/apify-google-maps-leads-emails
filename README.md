@@ -10,9 +10,9 @@
 - **Developers and AI agents** that need local business data behind a simple API
 
 ## 🚀 Why this one
-- 📧 **Emails and socials built in.** Contact enrichment is on by default and visits each business's home, contact and about pages. There's no separate add-on to find and enable.
+- 📧 **Emails and socials built in.** Contact enrichment is on by default and visits each business's home, contact, about and impressum pages. It decodes hidden emails (Cloudflare-protected, `name [at] domain (dot) com`), validates phone numbers and finds 13 social networks. There's no separate add-on to find and enable.
 - 💸 **Two flat prices, no tiers.** $0.003 per place and $0.001 when the website was actually reached. Unreachable sites aren't charged for contacts.
-- ⚡ **Fast.** Only the results list uses a browser. Place details and websites are fetched in parallel over HTTP, and each lead is saved as soon as it's done. In our measured test, 50 Tampa plumbers *with* contacts took about 10 seconds.
+- ⚡ **Fast.** Only the results list uses a browser. Place details and websites are fetched in parallel over HTTP, and each lead is saved as soon as it's done. In our measured test, 50 Tampa plumbers *with* contacts took about 20 seconds.
 - 🧱 **Spreadsheet-ready rows.** The address is split into street, neighborhood, city, state, postal code and country, there are five star-count columns, and `contactsStatus` tells you why a row has no email.
 - ⭐ **Quality filters.** Set a minimum rating, skip closed places, and optionally keep up to 8 reviews per place.
 - 🔌 **Works everywhere.** Export CSV, Excel or JSON, or connect through the API, Zapier, Make, Google Sheets or the Apify MCP server.
@@ -56,16 +56,16 @@
 }
 ```
 
-### Measured run: "plumbers" in Tampa, FL (50 places, contacts on, local, no proxy)
+### Measured run: "plumber" in Tampa, FL (50 places, contacts on, local, no proxy, 24 Oct 2026)
 | | Result |
 |---|---|
-| Wall clock, first lead to last | **10.5 s** (a repeat run took 9.0 s) |
+| Wall clock, start to finish | **about 21 s** |
 | Rating, reviews, star distribution, categories, phone, coordinates, place ID | 50 / 50 |
-| Website | 49 / 50 |
-| Opening hours and split address | 43 / 50 |
+| Website | 46 / 50 |
+| Opening hours / split address | 39 / 50, 40 / 50 |
 | Website reached | 46 |
-| **At least one email** | **28** |
-| At least one social profile | 36 |
+| **At least one email** | **25** |
+| At least one social profile | 33 |
 
 Results vary by niche and city. Many small businesses don't publish an email on their site.
 

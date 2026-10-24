@@ -59,28 +59,20 @@ export function extractFromHtml(html, baseUrl) {
     };
 }
 
-export async function enrichWebsite(website, { proxyUrl, maxPages = 3, timeoutMs = 15000, attempts = 2 } = {}) {
+// Contact enrichment uses the same engine as the Website Email Extractor actor: de-obfuscation
+// (Cloudflare, [at]/(dot), entities, split tags), JSON-LD, footer-linked contact/about/impressum pages,
+// validated E.164 phones and 13 canonical social networks.
+import { enrichWebsite as engineEnrich } from './web/enrich.js';
+
+export async function enrichWebsite(website, { proxyUrl, maxPages = 3 } = {}) {
     const out = { emails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0, error: null };
     if (!website) return out;
-    let url = website.startsWith('http') ? website : `https://${website}`;
-    const first = await fetchHtml(url, proxyUrl, timeoutMs, attempts);
-    if (!first) { out.error = 'website_unreachable'; return out; }
-    const queue = [first]; const seen = new Set([first.finalUrl]);
-    const emails = new Set(); const phones = new Set(); const socials = {};
-    while (queue.length && out.pagesScanned < maxPages) {
-        const page = queue.shift(); out.pagesScanned++; out.bytes += page.bytes || 0;
-        const r = extractFromHtml(page.html, page.finalUrl);
-        r.emails.forEach((e) => emails.add(e)); r.phones.forEach((p) => phones.add(p));
-        for (const [k, v] of Object.entries(r.socials)) socials[k] = [...new Set([...(socials[k] || []), ...v])].slice(0, 5);
-        for (const l of r.contactLinks) {
-            if (seen.has(l) || seen.size >= maxPages) continue; seen.add(l);
-            const p = await fetchHtml(l, proxyUrl, timeoutMs, attempts); if (p) queue.push(p);
-        }
-    }
-    // Rank emails: same domain as website first.
-    let host = ''; try { host = new URL(first.finalUrl).hostname.replace(/^www\./, ''); } catch {}
-    out.emails = [...emails].sort((a, b) => (b.endsWith(host) ? 1 : 0) - (a.endsWith(host) ? 1 : 0)).slice(0, 10);
-    const norm = new Map(); for (const p of phones) { const k = p.replace(/^\+?1(?=\d{10}$)/, ''); if (!norm.has(k)) norm.set(k, p); }
-    out.phones = [...norm.values()].slice(0, 5); out.socials = socials;
+    const r = await engineEnrich(website, { proxyUrl, maxPages, validateMx: false, timeoutMs: 6000 });
+    if (r.error) { out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error; return out; }
+    out.emails = r.emails.filter(isPlausibleEmail).slice(0, 10);
+    out.phones = r.phones.slice(0, 5);
+    for (const [k, v] of Object.entries(r.socials)) if (v?.length) out.socials[k] = v;
+    out.pagesScanned = r.pagesScanned;
+    out.bestContact = r.bestContact ? { email: r.bestContact.email, name: r.bestContact.name, role: r.bestContact.role } : null;
     return out;
 }

@@ -28,8 +28,8 @@ const limit = createLimiter(DETAIL_CONCURRENCY);
 const tasks = [];
 
 const searches = [
-    ...searchTerms.filter(Boolean).map((t) => ({ term: t, url: `https://www.google.com/maps/search/${encodeURIComponent(location ? `${t} in ${location}` : t)}?hl=${language}` })),
-    ...startUrls.map((u) => ({ term: null, url: typeof u === 'string' ? u : u.url })),
+    ...(Array.isArray(searchTerms) ? searchTerms : [searchTerms]).map((t) => String(t || '').trim()).filter(Boolean).map((t) => ({ term: t, url: `https://www.google.com/maps/search/${encodeURIComponent(location ? `${t} in ${location}` : t)}?hl=${language}` })),
+    ...(startUrls || []).map((u) => ({ term: null, url: typeof u === 'string' ? u : u?.url })).filter((s) => /^https:\/\/(www\.)?google\.[a-z.]+\/maps/.test(s.url || '')),
 ];
 
 async function acceptConsent(page) {
@@ -107,6 +107,11 @@ async function processPlace({ url, term, rank }) {
     const place = loaded.place;
     if (skipClosed && (place.permanentlyClosed || place.temporarilyClosed)) return;
     if (minRating && (place.rating ?? 0) < minRating) return;
+    // A nonsense query can make Google jump to the city itself. Skip places that are not businesses.
+    if (!place.category && !(place.categories || []).length && !place.phone && place.rating == null) {
+        log.info(`Skipping non-business result "${place.title}"`);
+        return;
+    }
     const key = place.placeId || place.fid || `${place.title}|${place.address}`;
     if (seenPlaces.has(key)) return;
     seenPlaces.add(key);
@@ -117,7 +122,7 @@ async function processPlace({ url, term, rank }) {
     if (extractContacts && place.website) {
         const contactProxy = proxy ? await proxy.newUrl() : undefined;
         const c0 = Date.now();
-        const enriched = await enrichWebsite(place.website, { proxyUrl: contactProxy, maxPages: contactPages, timeoutMs: 6000, attempts: 1 });
+        const enriched = await enrichWebsite(place.website, { proxyUrl: contactProxy, maxPages: contactPages });
         stats.contactMs.push(Date.now() - c0);
         stats.contactBytes += enriched.bytes || 0;
         stats.contactPages += enriched.pagesScanned || 0;
@@ -160,7 +165,9 @@ async function loadDetail(url, proxyUrl) {
     return last;
 }
 
-if (!searches.length) throw new Error('Provide searchTerms or startUrls');
+if (!searches.length) {
+    await Actor.fail('Add at least one search term (e.g. "dentist") or a Google Maps search URL.');
+}
 await crawler.run(searches.map((s) => ({ url: s.url, uniqueKey: s.url, label: 'SEARCH', userData: { term: s.term } })));
 const scrollDoneAt = Date.now();
 await Promise.all(tasks);
