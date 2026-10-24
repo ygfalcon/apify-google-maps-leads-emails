@@ -1,9 +1,11 @@
 import { promises as dns } from 'node:dns'
 import { gotScraping } from 'got-scraping'
 import {
+    extractImpressum,
     extractPage,
     finalizeContacts,
     hostFromUrl,
+    htmlToText,
     mergeSocials,
     pageKindFromUrl,
 } from './extract.js'
@@ -62,7 +64,11 @@ export async function checkMx(domain, { resolveMx = dns.resolveMx, timeoutMs = 1
 }
 
 export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = gotScraping } = {}) {
+    // A proxy that never connects used to burn both attempts. After a network failure, try once with no proxy.
+    // A clean 4xx (including 403) stays on the proxy so a block is not bypassed.
+    let dropProxy = false
     for (let attempt = 0; attempt < 2; attempt++) {
+        const useProxy = dropProxy ? undefined : proxyUrl
         const controller = new AbortController()
         let timer
         try {
@@ -70,7 +76,7 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
             const response = await Promise.race([fetchImpl({
                 signal: controller.signal,
                 url,
-                proxyUrl,
+                proxyUrl: useProxy,
                 timeout: { request: timeoutMs },
                 followRedirect: true,
                 retry: { limit: 0 },
@@ -91,7 +97,7 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
             if (status >= 500) continue
             return null
         } catch {
-            // One retry covers a dropped connection. 4xx is not retried.
+            if (proxyUrl && !dropProxy) dropProxy = true
         } finally {
             clearTimeout(timer)
         }
@@ -129,6 +135,7 @@ export async function enrichWebsite(website, {
         pagesScanned: 0,
         pages: [],
         finalUrl: null,
+        impressum: { owner: null, vatId: null },
         error: null,
     }
     if (!website) {
@@ -157,6 +164,7 @@ export async function enrichWebsite(website, {
     const phoneEntries = []
     const socialLists = []
     const pages = []
+    const impressum = { owner: null, vatId: null }
     const startHost = hostFromUrl(home.finalUrl)
     const startIsLinktree = pageKindFromUrl(home.finalUrl) === 'linktree'
 
@@ -168,6 +176,11 @@ export async function enrichWebsite(website, {
         phoneEntries.push(...extracted.phones)
         socialLists.push(extracted.socials)
         pages.push(page.finalUrl)
+        if (kind === 'impressum') {
+            const parsed = extractImpressum(htmlToText(page.html))
+            if (!impressum.owner && parsed.owner) impressum.owner = parsed.owner
+            if (!impressum.vatId && parsed.vatId) impressum.vatId = parsed.vatId
+        }
         for (const link of extracted.links) {
             if (kind === 'linktree' && !startIsLinktree) continue
             if (seen.has(link.url)) continue
@@ -218,6 +231,7 @@ export async function enrichWebsite(website, {
         ...empty,
         ...finalized,
         socials: mergeSocials(socialLists),
+        impressum,
         pagesScanned: pages.length,
         pages,
         finalUrl: home.finalUrl,

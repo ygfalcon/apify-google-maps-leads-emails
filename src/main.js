@@ -1,10 +1,13 @@
 import { Actor, log } from 'apify';
 import { PlaywrightCrawler } from 'crawlee';
-import { enrichWebsite, withDeadline } from './contacts.js';
+import { createEnrichmentCache, enrichWebsite, withDeadline } from './contacts.js';
 import { estimatePerThousand } from './cost.js';
 import { fetchPlaceDetail } from './detail.js';
 import { normalizePhone, toDatasetItem } from './place.js';
 import { createLimiter } from './pool.js';
+import { selectProxy } from './proxy.js';
+import { feedNeedsRetry, mapsSearchUrl, parseMapView, planAreaSplits } from './split.js';
+import { wantsImpressum } from './web/extract.js';
 
 await Actor.init();
 const input = (await Actor.getInput()) || {};
@@ -17,8 +20,12 @@ const maxTotal = Math.max(1, Math.min(Number(maxPlacesPerSearch) || 20, 500));
 const reviewLimit = Math.max(0, Math.min(Number(maxReviews) || 0, 8));
 const contactPages = Math.max(1, Math.min(Number(maxContactPages) || 3, 6));
 log.info(`extractContacts=${Boolean(extractContacts)} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
-const proxy = proxyInput?.useApifyProxy || proxyInput?.proxyUrls ? await Actor.createProxyConfiguration(proxyInput) : undefined;
+const proxy = await selectProxy(proxyInput, { createProxy: (input) => Actor.createProxyConfiguration(input), log });
 const seenPlaces = new Set();
+const scheduledUrls = new Set();
+const scheduledByTerm = new Map();
+const scheduledAreas = new Set();
+const cachedEnrich = createEnrichmentCache(enrichWebsite);
 let pushed = 0;
 const canCharge = !!process.env.ACTOR_RUN_ID; // charge only on platform
 const startedAt = Date.now();
@@ -30,7 +37,7 @@ let closing = false; // set when the drain deadline passes: late work must not p
 const DRAIN_DEADLINE_MS = 120000;
 
 const searches = [
-    ...(Array.isArray(searchTerms) ? searchTerms : [searchTerms]).map((t) => String(t || '').trim()).filter(Boolean).map((t) => ({ term: t, url: `https://www.google.com/maps/search/${encodeURIComponent(location ? `${t} in ${location}` : t)}?hl=${language}` })),
+    ...(Array.isArray(searchTerms) ? searchTerms : [searchTerms]).map((t) => String(t || '').trim()).filter(Boolean).map((t) => ({ term: t, url: mapsSearchUrl({ term: t, location, language }) })),
     ...(startUrls || []).map((u) => ({ term: null, url: typeof u === 'string' ? u : u?.url })).filter((s) => /^https:\/\/(www\.)?google\.[a-z.]+\/maps/.test(s.url || '')),
 ];
 
@@ -48,7 +55,7 @@ const crawler = new PlaywrightCrawler({
     preNavigationHooks: [async ({ page }) => {
         await page.route('**/*', (r) => { const q = r.request(); return (BLOCK_TYPES.has(q.resourceType()) || BLOCK_URL.test(q.url())) ? r.abort() : r.continue(); });
     }],
-    async requestHandler({ page, request }) {
+    async requestHandler({ page, request, addRequests }) {
         await acceptConsent(page);
         const listT0 = Date.now();
         // A one-result search redirects to the place before a feed exists. Schedule it immediately.
@@ -83,18 +90,32 @@ const crawler = new PlaywrightCrawler({
             await collect(); stale = links.size === before ? stale + 1 : 0;
         }
         const ended = (await page.locator('span.HlvSq').count()) > 0;
-        if (links.size < want && !ended && request.retryCount < 2) throw new Error(`Feed stalled at ${links.size}/${want} places before end of list; retrying with a fresh session`);
+        if (feedNeedsRetry({ found: links.size, wanted: want, ended, retryCount: request.retryCount, depth: request.userData.depth || 0 })) throw new Error(`Feed stalled at ${links.size}/${want} places before end of list; retrying with a fresh session`);
         const scrollMs = Date.now() - listT0;
         stats.scrollMs.push(scrollMs);
         log.info(`Search "${request.userData.term}": ${links.size} places, scroll ${scrollMs}ms`);
         // Detail pages and website enrichment run over HTTP, outside this browser page, so the scroll can finish
         // and each place is pushed as soon as that place is ready.
-        [...links].slice(0, want).forEach((url, i) => schedule(url, request.userData.term, i + 1));
+        for (const url of links) schedule(url, request.userData.term);
+        const depth = request.userData.depth || 0;
+        const view = request.userData.view || parseMapView(page.url());
+        const extra = planAreaSplits({
+            found: links.size, wanted: maxTotal, depth, view, term: request.userData.term, location, language, seenKeys: scheduledAreas,
+        });
+        for (const req of extra) scheduledAreas.add(req.uniqueKey);
+        if (extra.length && typeof addRequests === 'function') await addRequests(extra);
     },
     failedRequestHandler({ request }, err) { log.warning(`Failed ${request.url}: ${err.message}`); },
 });
 
-function schedule(url, term, rank) {
+function schedule(url, term) {
+    if (scheduledUrls.has(url)) return;
+    const bucket = term || '';
+    const count = scheduledByTerm.get(bucket) || 0;
+    if (count >= maxTotal) return;
+    scheduledUrls.add(url);
+    scheduledByTerm.set(bucket, count + 1);
+    const rank = count + 1;
     tasks.push(limit(() => processPlace({ url, term, rank }).catch((err) => log.warning(`Place ${url}: ${err.message}`))));
 }
 
@@ -118,25 +139,36 @@ async function processPlace({ url, term, rank }) {
     if (seenPlaces.has(key)) return;
     seenPlaces.add(key);
     let emails = [];
+    let thirdPartyEmails = [];
+    let impressumOwner = null;
+    let vatId = null;
     let socials = {};
     let websitePhones = [];
     let contactsStatus = 'skipped';
     if (extractContacts && place.website) {
         const contactProxy = proxy ? await proxy.newUrl() : undefined;
         const c0 = Date.now();
-        const enriched = await enrichWebsite(place.website, { proxyUrl: contactProxy, maxPages: contactPages });
+        const enriched = await cachedEnrich(place.website, { proxyUrl: contactProxy, maxPages: contactPages });
         stats.contactMs.push(Date.now() - c0);
         stats.contactBytes += enriched.bytes || 0;
         stats.contactPages += enriched.pagesScanned || 0;
         emails = enriched.emails;
+        thirdPartyEmails = enriched.thirdPartyEmails || [];
         socials = enriched.socials;
         websitePhones = enriched.phones.map((phone) => normalizePhone(phone)).filter(Boolean);
         contactsStatus = enriched.error || 'ok';
+        if (wantsImpressum(place.countryCode, place.website)) {
+            impressumOwner = enriched.impressumOwner || null;
+            vatId = enriched.vatId || null;
+        }
     } else if (extractContacts) contactsStatus = 'no_website';
     const item = toDatasetItem(place, {
         searchTerm: term || null,
         rank,
         emails,
+        thirdPartyEmails,
+        impressumOwner,
+        vatId,
         socials,
         websitePhones,
         contactsStatus,

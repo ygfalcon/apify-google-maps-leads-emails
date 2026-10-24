@@ -25,7 +25,7 @@
       "minimum": 1,
       "maximum": 500,
       "default": 20,
-      "description": "Leads to collect per search term. Google Maps lists up to ~120 places per search, so split big areas into several locations or terms."
+      "description": "Leads to collect per search term. Google Maps lists about 120 places per search. When you ask for more and a search comes back full, that area is split into closer views automatically, up to this max (500). The default of 20 does not split."
     },
     "extractContacts": {
       "title": "Extract emails & socials from websites",
@@ -81,7 +81,7 @@
       "title": "Proxy",
       "type": "object",
       "editor": "proxy",
-      "description": "The Apify datacenter proxy works for most runs. Switch to residential only if you see blocks.",
+      "description": "The Apify datacenter proxy works for most runs. If it cannot be reached, the run continues with a direct connection instead of hanging. Switch to residential only if you see blocks.",
       "prefill": {
         "useApifyProxy": true
       },

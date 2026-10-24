@@ -1,4 +1,5 @@
 import { parsePhoneNumberFromString } from 'libphonenumber-js/max'
+import { isKnownTld } from './tlds.js'
 // Pure contact extraction: de-obfuscation, syntax checks, socials, phones, names, and ranking.
 // Network I/O and MX lookups live in enrich.js.
 
@@ -245,8 +246,15 @@ export function htmlToText(html) {
         .replace(/<style[\s\S]*?<\/style>/gi, '\n')
         .replace(/<noscript[\s\S]*?<\/noscript>/gi, '\n')
         .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/(p|div|li|tr|h[1-6]|section|footer|header|article|td|th|address|blockquote)>/gi, '\n')
+        .replace(/<\/(p|div|li|tr|h[1-6]|section|footer|header|article|td|th|address|blockquote|a|button|strong|b|em|label)>/gi, '\n')
         .replace(/<[^>]+>/g, '')
+}
+
+// A phone or a short word glued onto the front of a real local part ("0info", "312.600.2777hi", "ushello").
+function hasGluedLocal(local) {
+    return /^\d{3}[.\-]?\d{3}[.\-]?\d{4}/.test(local)
+        || /^\d{7,}[a-z]/i.test(local)
+        || /^\d[a-z]/i.test(local)
 }
 
 export function isValidEmailSyntax(email) {
@@ -271,6 +279,8 @@ export function isValidEmailSyntax(email) {
     if (/^[0-9a-f]{24,}$/.test(local)) return false
     if (/@\d+x\./.test(value)) return false
     if (/\d{5,}/.test(domain.split('.')[0]) && /^(?:19|20)\d{2}/.test(local)) return false
+    if (!isKnownTld(tld)) return false
+    if (hasGluedLocal(local)) return false
     return true
 }
 
@@ -648,7 +658,7 @@ function decodeURIComponentSafe(value) {
 function extractTextPhones(text) {
     const phones = []
     const withoutUrls = text.replace(/https?:\/\/\S+/g, ' ')
-    const re = /(?:\+\d{1,3}[\s().-]?)?(?:\(?\d{2,4}\)?[\s().-]?){2,4}\d{2,4}/g
+    const re = /(?:\+\d{1,3}[\s().-]?)?(?:\(?\d{2,4}\)?[\s().-]?){2,4}\d{2,4}(?:[\s./-]\d{1,4})*/g
     for (const match of withoutUrls.matchAll(re)) {
         const raw = match[0].trim()
         if (!plausibleTextPhone(raw)) continue
@@ -674,6 +684,8 @@ function canonicalizeSocial(key, url) {
     }
     if (key === 'facebook') {
         parsed.hostname = 'www.facebook.com'
+        const path = parsed.pathname.toLowerCase()
+        if (path.includes('fbml') || /\/(?:sharer|share|plugins|dialog|tr|login|watch|help|privacy|policies|settings|photo\.php|story\.php|notes|events|pg|recover|directory)(?:\/|$)/.test(path)) return null
         if (parsed.pathname === '/profile.php') {
             const id = parsed.searchParams.get('id')
             if (!id) return null
@@ -685,7 +697,8 @@ function canonicalizeSocial(key, url) {
         parsed.hostname = 'www.instagram.com'
         parsed.search = ''
         const handle = parsed.pathname.split('/').filter(Boolean)[0]
-        if (!handle) return null
+        // Smash Balloon and similar plugins link an internal numeric user id, not a handle.
+        if (!handle || /^\d{6,}$/.test(handle)) return null
         return `https://www.instagram.com/${handle.toLowerCase()}`
     }
     if (key === 'twitter') {
@@ -1066,10 +1079,40 @@ export function validatePhone(raw, siteHost = '') {
     return null
 }
 
+function dropTruncatedPhones(entries) {
+    const digitsOf = (phone) => String(phone).replace(/\D/g, '')
+    return entries.filter((entry) => {
+        const digits = digitsOf(entry.phone)
+        return !entries.some((other) => {
+            const longer = digitsOf(other.phone)
+            const diff = longer.length - digits.length
+            return diff >= 1 && diff <= 3 && longer.startsWith(digits)
+        })
+    })
+}
+
+function dropGluedEmails(emails) {
+    const list = [...emails.keys()]
+    for (const email of list) {
+        if (!emails.has(email)) continue
+        const [local, domain] = email.split('@')
+        for (const other of list) {
+            if (other === email || !emails.has(other)) continue
+            const [olocal, odomain] = other.split('@')
+            if (domain !== odomain || local.length <= olocal.length || !local.endsWith(olocal)) continue
+            const prefix = local.slice(0, local.length - olocal.length)
+            if (/^[\d.\-+()\s]+$/.test(prefix) || /^(?:us|email|mail|call|tel|phone|contact|the|our)$/i.test(prefix)) {
+                emails.delete(email)
+                break
+            }
+        }
+    }
+}
+
 export function finalizeContacts({ emailRows, people: rawPeople, phoneEntries: rawPhoneEntries, siteHost }) {
-    const phoneEntries = rawPhoneEntries
+    const phoneEntries = dropTruncatedPhones(rawPhoneEntries
         .map((entry) => ({ ...entry, phone: validatePhone(entry.phone, siteHost) }))
-        .filter((entry) => entry.phone)
+        .filter((entry) => entry.phone))
     const people = rawPeople.map((person) => ({ ...person, phone: validatePhone(person.phone, siteHost) }))
     emailRows = emailRows.map((row) => ({ ...row, phone: row.phone ? validatePhone(row.phone, siteHost) : row.phone }))
     const emails = new Map()
@@ -1105,6 +1148,7 @@ export function finalizeContacts({ emailRows, people: rawPeople, phoneEntries: r
             emails.set(email, preferPerson(existing, person))
         }
     }
+    dropGluedEmails(emails)
     for (const row of emails.values()) {
         if (!row.role) {
             const inbox = INBOX_ROLE[row.email.split('@')[0]]
@@ -1206,4 +1250,63 @@ export function hostFromUrl(url) {
     } catch {
         return ''
     }
+}
+
+// A mailbox on a different registrable domain that is not a personal inbox (gmail and the like).
+export function isThirdPartyEmail(email, siteHost) {
+    const domain = String(email || '').toLowerCase().split('@')[1] || ''
+    if (!domain || !siteHost) return false
+    if (sameSite(domain, siteHost)) return false
+    if (FREE_MAIL.has(domain)) return false
+    return true
+}
+
+export function wantsImpressum(countryCode, website) {
+    if (String(countryCode || '').toUpperCase() === 'DE') return true
+    try {
+        const host = new URL(String(website).startsWith('http') ? website : `https://${website}`).hostname.toLowerCase()
+        return host.endsWith('.de')
+    } catch {
+        return false
+    }
+}
+
+const IMPRESSUM_ROLE = /geschäftsführender\s+gesellschafter|geschäftsführer(?:in)?|inhaber(?:in)?|vertreten\s+durch|managing\s+director|\bowner\b/i
+
+function cleanImpressumPerson(value) {
+    let name = String(value || '')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\b(?:Tel\.?|Telefon|Telefax|Fax|E-?Mail|Email|Mail)\b.*$/i, '')
+        .replace(/[:|]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    name = name.replace(/^(?:den|die|der|the)\s+/i, '')
+    name = name.replace(/^(?:geschäftsführender\s+gesellschafter|geschäftsführer(?:in)?|inhaber(?:in)?|managing\s+director|owner)\b[:\s-]*/i, '').trim()
+    name = name.replace(/^(?:den|die|der|the)\s+/i, '').trim()
+    if (!name || name.length < 3 || name.length > 120) return null
+    if (/^(?:geschäftsführer(?:in)?|inhaber(?:in)?|owner|managing director|vertreten durch)$/i.test(name)) return null
+    if (/verantwortlich/i.test(name)) return null
+    return name
+}
+
+function impressumVat(text) {
+    const match = String(text || '').match(/(?:USt[-\s]?IdNr\.?|Umsatzsteuer(?:[-\s]?Identifikationsnummer)?|(?<![A-Za-z])UID(?![A-Za-z])|VAT(?:\s*-?\s*ID)?)\s*[:.]?\s*((?:[A-Z]{2})?[\s./-]*\d(?:[\s./-]*\d){7,11})/i)
+    if (!match) return null
+    const compact = match[1].replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+    const id = compact.startsWith('DE') ? compact : `DE${compact}`
+    return /^DE\d{9}$/.test(id) ? id : null
+}
+
+export function extractImpressum(text) {
+    const lines = String(text || '').split(/\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean)
+    let owner = null
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (/redaktionell|verantwortlich/i.test(line) && !/geschäftsführer|inhaber|gesellschafter|vertreten\s+durch/i.test(line)) continue
+        const match = line.match(IMPRESSUM_ROLE)
+        if (!match) continue
+        owner = cleanImpressumPerson(line.slice(match.index + match[0].length)) || cleanImpressumPerson(lines[i + 1] || '')
+        if (owner) break
+    }
+    return { owner, vatId: impressumVat(text) }
 }

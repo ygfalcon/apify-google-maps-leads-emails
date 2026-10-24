@@ -34,9 +34,8 @@ async function defaultFetch(url, { proxyUrl, timeoutMs = 12000 } = {}) {
     return { status: res.statusCode, body, bytes: Buffer.byteLength(body) };
 }
 
-export async function fetchPlaceDetail(placeUrl, options = {}) {
+async function loadPlace(placeUrl, options, started) {
     const fetchImpl = options.fetchImpl || defaultFetch;
-    const started = Date.now();
     let bytes = 0;
     const pageUrl = withLanguage(placeUrl, options.language || 'en');
     const html = await fetchImpl(pageUrl, options);
@@ -54,6 +53,17 @@ export async function fetchPlaceDetail(placeUrl, options = {}) {
     const place = parsePreviewPayload(preview.body, { maxReviews: options.maxReviews || 0 });
     if (!place?.title) return { error: 'place_parse_failed', place: null, bytes, ms: Date.now() - started };
     return { error: null, place, bytes, ms: Date.now() - started };
+}
+
+export async function fetchPlaceDetail(placeUrl, options = {}) {
+    const started = Date.now();
+    try {
+        return await loadPlace(placeUrl, options, started);
+    } catch (err) {
+        // A proxy that drops the connection is retried once directly. An HTTP status is returned, not thrown.
+        if (!options.proxyUrl) throw err;
+        return loadPlace(placeUrl, { ...options, proxyUrl: undefined }, started);
+    }
 }
 
 function withLanguage(url, language) {
