@@ -1,6 +1,6 @@
 // Website contact enrichment: emails, phones, social profiles. Plain HTTP (no browser), retries, small page budget.
 import { gotScraping } from './http.js';
-import { hostFromUrl, isThirdPartyEmail, isValidEmailSyntax } from './web/extract.js';
+import { emailMatchesBusiness, hostFromUrl, isThirdPartyEmail, isValidEmailSyntax } from './web/extract.js';
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,24}/g;
 const BAD_EMAIL = /\.(png|jpe?g|gif|svg|webp|css|js)$|@(example|domain|email|sentry|wixpress|sentry-next)\.|^(u00|x22)|@\d+x\./i;
@@ -77,7 +77,7 @@ export function withDeadline(promise, ms, label = 'timeout') {
     ]).finally(() => clearTimeout(timer));
 }
 
-export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineMs = SITE_DEADLINE_MS, engine = engineEnrich } = {}) {
+export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineMs = SITE_DEADLINE_MS, engine = engineEnrich, title = '' } = {}) {
     const out = {
         emails: [], thirdPartyEmails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0,
         impressumOwner: null, vatId: null, error: null,
@@ -93,8 +93,14 @@ export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineM
     out.bytes = r.bytes || 0;
     const host = hostFromUrl(r.finalUrl || website);
     const plausible = (r.emails || []).filter(isPlausibleEmail);
-    out.emails = plausible.filter((email) => !isThirdPartyEmail(email, host)).slice(0, 10);
-    out.thirdPartyEmails = plausible.filter((email) => isThirdPartyEmail(email, host)).slice(0, 10);
+    const own = [];
+    const third = [];
+    for (const email of plausible) {
+        if (isThirdPartyEmail(email, host) && !emailMatchesBusiness(email, host, title)) third.push(email);
+        else own.push(email);
+    }
+    out.emails = own.slice(0, 10);
+    out.thirdPartyEmails = third.slice(0, 10);
     if (r.error) out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error;
     out.phones = (r.phones || []).slice(0, 5);
     for (const [k, v] of Object.entries(r.socials || {})) if (v?.length) out.socials[k] = v;

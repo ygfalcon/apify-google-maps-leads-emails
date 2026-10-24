@@ -124,7 +124,7 @@ const NAME_STOP = /^(contact us|about us|read more|learn more|get in touch|email
 const SOCIAL_RULES = [
     {
         key: 'facebook',
-        re: /https?:\/\/(?:(?:www|m|web|mbasic)\.)?(?:facebook\.com|fb\.com)\/(?:pages\/[A-Za-z0-9.\-]+\/[0-9]+|profile\.php\?id=[0-9]+|people\/[A-Za-z0-9.\-]+\/[0-9]+|p\/[A-Za-z0-9.\-]{2,}(?:\/[0-9]+)?|(?!sharer(?:\.php)?|share(?:\.php)?|plugins|dialog|tr|login|recover|watch|photo\.php|privacy|policies|help|settings|story\.php|people|pg|events|notes)[A-Za-z0-9.]{2,})(?:\/[A-Za-z0-9.\-]+)?/gi,
+        re: /https?:\/\/(?:(?:www|m|web|mbasic)\.)?(?:facebook\.com|fb\.com)\/(?:pages\/[A-Za-z0-9.\-]+\/[0-9]+|profile\.php\?id=[0-9]+|people\/[A-Za-z0-9.\-]+\/[0-9]+|p\/[A-Za-z0-9.\-]{2,}(?:\/[0-9]+)?|(?!sharer(?:\.php)?|share(?:\.php)?|plugins|dialog|tr|login|recover|watch|photo\.php|privacy|policies|help|settings|story\.php|people|pg|events|notes)[A-Za-z0-9.\-]{2,100})(?:\/[A-Za-z0-9.\-]+)?/gi,
     },
     {
         key: 'instagram',
@@ -721,6 +721,17 @@ function extractTextPhones(text) {
     return phones
 }
 
+const PLATFORM_HANDLES = new Set([
+    'squarespace', 'wix', 'wordpress', 'shopify', 'godaddy', 'weebly', 'webflow', 'jimdo', 'duda',
+    'strikingly', 'carrd', 'site123', 'webnode', 'ionos', 'bluehost', 'siteground', 'hostinger',
+    'format', 'cargo', 'webador', 'zyro',
+])
+
+function platformSocialHandle(handle) {
+    const name = String(handle || '').replace(/^@/, '').split(/[/?#]/)[0].toLowerCase()
+    return PLATFORM_HANDLES.has(name)
+}
+
 function canonicalizeSocial(key, url) {
     let parsed
     try {
@@ -737,8 +748,10 @@ function canonicalizeSocial(key, url) {
     }
     if (key === 'facebook') {
         parsed.hostname = 'www.facebook.com'
+        parsed.pathname = parsed.pathname.replace(/\/(?:reviews|photos|about|community|posts|videos|reels|mentions)\/?$/i, '')
         const path = parsed.pathname.toLowerCase()
         if (path.includes('fbml') || /\/(?:sharer|share|plugins|dialog|tr|login|watch|help|privacy|policies|settings|photo\.php|story\.php|notes|events|pg|recover|directory)(?:\/|$)/.test(path)) return null
+        if (platformSocialHandle(path.split('/').filter(Boolean)[0])) return null
         if (parsed.pathname === '/profile.php') {
             const id = parsed.searchParams.get('id')
             if (!id) return null
@@ -751,31 +764,35 @@ function canonicalizeSocial(key, url) {
         parsed.search = ''
         const handle = parsed.pathname.split('/').filter(Boolean)[0]
         // Smash Balloon and similar plugins link an internal numeric user id, not a handle.
-        if (!handle || /^\d{6,}$/.test(handle)) return null
+        if (!handle || /^\d{6,}$/.test(handle) || platformSocialHandle(handle)) return null
         return `https://www.instagram.com/${handle.toLowerCase()}`
     }
     if (key === 'twitter') {
         parsed.hostname = 'x.com'
         parsed.search = ''
         const handle = parsed.pathname.split('/').filter(Boolean)[0]
-        if (!handle || /^(intent|share|home|search|hashtag)$/i.test(handle)) return null
+        if (!handle || /^(intent|share|home|search|hashtag)$/i.test(handle) || platformSocialHandle(handle)) return null
         return `https://x.com/${handle}`
     }
     if (key === 'tiktok') {
         parsed.hostname = 'www.tiktok.com'
         parsed.search = ''
         const handle = parsed.pathname.split('/').filter(Boolean)[0]
-        if (!handle || !handle.startsWith('@')) return null
+        if (!handle || !handle.startsWith('@') || platformSocialHandle(handle)) return null
         return `https://www.tiktok.com/${handle}`
     }
     if (key === 'youtube') {
         parsed.hostname = 'www.youtube.com'
         parsed.search = ''
+        const handle = parsed.pathname.split('/').filter(Boolean).pop()
+        if (platformSocialHandle(handle)) return null
     }
     if (key === 'linkedin') {
         parsed.hostname = 'www.linkedin.com'
         parsed.search = ''
         parsed.pathname = parsed.pathname.replace(/\/+$/, '')
+        const handle = parsed.pathname.split('/').filter(Boolean).pop()
+        if (platformSocialHandle(handle)) return null
     }
     if (key === 'threads') {
         parsed.hostname = 'www.threads.net'
@@ -962,8 +979,19 @@ export function stripLongTokens(html, max = 400) {
     return String(html || '').replace(new RegExp(`[^\\s<>"']{${max},}`, 'g'), ' ')
 }
 
+// Keep the start and the end. Contact lines usually sit in the footer, and a 1.5 MB cut from the
+// front used to drop them on long themes. Escaped JSON slashes are turned into real slashes so
+// sameAs URLs still match.
+export function clipHtml(html, max = 1_500_000) {
+    const raw = String(html || '').replace(/\\\//g, '/')
+    if (raw.length <= max) return raw
+    const head = Math.floor(max * 0.6)
+    const tail = max - head - 1
+    return `${raw.slice(0, head)}\n${raw.slice(raw.length - tail)}`
+}
+
 export function extractPage(html, baseUrl, pageKind = 'home') {
-    const raw = stripLongTokens(normalizeScanHtml(String(html || '').slice(0, 1_500_000)))
+    const raw = stripLongTokens(normalizeScanHtml(clipHtml(html)))
     const emails = new Map()
     const people = []
     const phoneEntries = []
@@ -1310,6 +1338,44 @@ export function hostFromUrl(url) {
 }
 
 // A mailbox on a different registrable domain that is not a personal inbox (gmail and the like).
+const BRAND_STOP = new Set([
+    'www', 'com', 'net', 'org', 'info', 'mail', 'email', 'legal', 'law', 'lawyer', 'attorney',
+    'dental', 'dentist', 'plumb', 'plumbing', 'plumber', 'electric', 'electrician', 'salon',
+    'berlin', 'miami', 'austin', 'tampa', 'denver', 'chicago', 'gmbh', 'group', 'services',
+    'service', 'company', 'online', 'site', 'web', 'kontakt', 'contact', 'kanzlei', 'studio',
+    'home', 'house', 'team', 'shop', 'store', 'best', 'local', 'city', 'south', 'north', 'east',
+    'west', 'hour', 'hours', 'family', 'care', 'works', 'solutions', 'associates', 'international',
+    'rechtsanwalt', 'rechtsanwaelte',
+])
+
+const ASSOCIATION_DOMAIN = /(?:^|\.)(?:brak\.de|rak-[a-z0-9-]+\.de|rakko\.de|datenschutz-berlin\.de)$/i
+const PLATFORM_EMAIL_DOMAIN = /(?:^|\.)(?:wixpress\.com|sentry\.io|godaddy\.com|squarespace\.com|shopify\.com|webflow\.com|wordpress\.com|ionos\.(?:com|de)|jimdo\.com|webapto\.co\.uk)$/i
+
+function brandTokens(value) {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length >= 4 && !BRAND_STOP.has(token))
+}
+
+// A mailbox on another registrable domain that still belongs to this business (a second brand
+// domain), rather than a booking tool, agency, or bar association.
+export function emailMatchesBusiness(email, siteHost, title = '') {
+    const domain = String(email || '').toLowerCase().split('@')[1] || ''
+    if (!domain || ASSOCIATION_DOMAIN.test(domain) || PLATFORM_EMAIL_DOMAIN.test(domain)) return false
+    if (!isThirdPartyEmail(email, siteHost)) return false
+    const domainBody = registrableDomain(domain).split('.').slice(0, -1).join('.')
+    const domainTokens = brandTokens(domainBody)
+    const hay = brandTokens(`${siteHost || ''} ${title || ''}`)
+    return domainTokens.some((token) => hay.some((item) => {
+        if (item === token) return true
+        const [longer, shorter] = token.length >= item.length ? [token, item] : [item, token]
+        return shorter.length >= 4 && longer.length >= shorter.length + 3 && longer.includes(shorter)
+    }))
+}
+
 export function isThirdPartyEmail(email, siteHost) {
     const domain = String(email || '').toLowerCase().split('@')[1] || ''
     if (!domain || !siteHost) return false

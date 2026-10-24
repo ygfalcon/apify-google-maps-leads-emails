@@ -69,6 +69,40 @@
 
 Results vary by niche and city. Many small businesses don't publish an email on their site.
 
+## Comparison (falcon.sol, 24 Oct 2026)
+
+I ran the same five searches, 10 places each, with website contacts on and no rating, website, or closed-place filters:
+
+`plumber in Tampa, Florida` · `dentist in Austin, Texas` · `electrician in Denver, Colorado` · `hair salon in Chicago, Illinois` · `lawyer in Berlin, Germany`
+
+The other columns are the three most-used Apify actors that save one row per place, ranked by `totalUsers30Days` on the public actor record that day. `compass/Google-Maps-Reviews-Scraper` had 8,553 users in 30 days, second among Maps actors, and it returns reviews, so it is not in this table.
+
+| | This actor | [compass/crawler-google-places](https://apify.com/compass/crawler-google-places) | [compass/google-maps-extractor](https://apify.com/compass/google-maps-extractor) | [lukaskrivka/google-maps-with-contact-details](https://apify.com/lukaskrivka/google-maps-with-contact-details) |
+|---|---:|---:|---:|---:|
+| Users, last 30 days |  | 44,954 | 2,284 | 2,531 |
+| Places saved | 50 | 50 | 50 | 50 |
+| Unique place IDs | 50 | 50 | 50 | 50 |
+| With a phone | 49 | 49 | 49 | 49 |
+| With an email in `emails` | **31** | 30 | 31 | 28 |
+| Email addresses in `emails` | 37 | 45 | 47 | 47 |
+| With a social profile | 33 | 34 | 36 | 35 |
+| Social URLs | 110 | 126 | 141 | 177 |
+| Wall clock | **15.5 s** local, no proxy | 153 s on Apify | 212 s on Apify | 161 s on Apify |
+| Cost per 1,000 places, Free-plan list price, this contact mix | **$4.87** | $5.92 | $9.00 | $7.45 |
+
+List prices used (`pricing.json` was not edited; it is $0.0034 per place and $0.0015 per site reached):
+
+- This actor: $0.0034 per place, plus $0.0015 for each website that loaded (49 of 50). 50 × $0.0034 + 49 × $0.0015 = $0.2435 for this sample, which is $4.87 per 1,000.
+- Compass Maps Scraper, Free tier: $0.004 per place and $0.002 per company-contacts enrichment. The run charged 50 places and 48 contact enrichments, which is $5.92 per 1,000, plus a $0.0001 start fee on that run.
+- Compass Extractor, Free tier: $0.005 per place and $0.004 per contacts enrichment (50 and 50). $9.00 per 1,000, plus $0.0001 to start.
+- Email Extractor, Free tier: $0.005 per place and $0.0025 per contacts enrichment (50 and 49). $7.45 per 1,000, plus $0.0001 to start.
+
+The three hosted runs started together at 13:39 UTC and cost $0.296, $0.450, and $0.373. Mine finished in 15.5 seconds on this machine, direct connection, a minute earlier. Place IDs in common: 32 with the Maps Scraper, 31 with the Extractor, 32 with the Email Extractor. Google's order moved between the runs.
+
+On the overlap, the extra strings in their `emails` arrays were a Berlin bar association, a web agency, or a second domain of the same firm. Those sit in `thirdPartyEmails` here (8 addresses on 4 rows). All three of them saved `twitter.com/wix` on Williams and Sons Electric. That URL is dropped here.
+
+Spot-check of 30 of my rows, six from each search, against a fresh Maps detail fetch and the business site: the name matched 30/30, the phone matched 29/29 (All Electric had no phone), and all 21 email addresses were `mailto` links on that site. Two are off the homepage: `karen@karenmariesalon.com` on the team page, and `redcappresident@redcapnow.com` on the contact page. On the rows they also returned inside those 30, their names and phones matched the same fresh fetch (18, 18, and 20 names). I did not find `presse@cdr-legal.de`, which all three saved, on the CDR Legal homepage.
+
 ## 💵 Pricing, in plain English
 | Event | When it's charged | Price |
 |---|---|---|

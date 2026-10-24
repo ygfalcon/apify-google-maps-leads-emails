@@ -1,6 +1,7 @@
 import { promises as dns } from 'node:dns'
 import { gotScraping } from 'got-scraping'
 import {
+    clipHtml,
     extractImpressum,
     extractSocials,
     finalizeContacts,
@@ -113,8 +114,13 @@ export async function fetchHtml(url, { proxyUrl, timeoutMs = 12000, fetchImpl = 
             const bytes = Buffer.byteLength(body)
             if (status >= 400 && status < 500) return null
             const looksHtml = type.includes('html') || type.includes('xml') || (!type && body.includes('<'))
+            // SiteGround and similar gates answer 202 with a tiny meta-refresh. That is not the site.
+            const challenge = ((status === 202 || status === 203 || status === 204) && body.length < 2000)
+                || (/sgcaptcha|cf-browser-verification|cdn-cgi\/challenge-platform/i.test(body) && body.length < 20000)
+                || (body.length < 500 && /http-equiv=["']refresh["']/i.test(body))
+            if (challenge) continue
             if (status < 400 && looksHtml && body.includes('<')) {
-                return { html: body.slice(0, 1_500_000), finalUrl: response.url || url, bytes }
+                return { html: clipHtml(body), finalUrl: response.url || url, bytes }
             }
             if (status >= 500) continue
             return null

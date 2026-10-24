@@ -188,7 +188,7 @@ async function processPlace({ url, term, rank }) {
         try { siteKey = websiteCacheKey(place.website); } catch { /* keep the raw key */ }
         const firstForSite = !countedSites.has(siteKey);
         if (firstForSite) countedSites.add(siteKey);
-        const enriched = await cachedEnrich(place.website, { proxyUrl: contactProxy, maxPages: contactPages });
+        const enriched = await cachedEnrich(place.website, { proxyUrl: contactProxy, maxPages: contactPages, title: place.title });
         stats.contactMs.push(Date.now() - c0);
         if (firstForSite) {
             stats.contactBytes += enriched.bytes || 0;
