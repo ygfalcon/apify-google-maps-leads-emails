@@ -184,8 +184,8 @@ test('dataset item matches the dataset schema and keeps prices unchanged', () =>
         assert.ok(valueAllowed(props[key], value), `${key} does not match the schema`);
     }
     for (const key of schema.fields.required) assert.ok(item[key]);
-    assert.equal(pricing.events.find((e) => e.eventName === 'place-scraped').priceUsd, 0.003);
-    assert.equal(pricing.events.find((e) => e.eventName === 'contacts-enriched').priceUsd, 0.001);
+    assert.equal(pricing.events.find((e) => e.eventName === 'place-scraped').priceUsd, 0.0034);
+    assert.equal(pricing.events.find((e) => e.eventName === 'contacts-enriched').priceUsd, 0.0015);
     const leads = schema.views.leads.transformation;
     const shown = new Set(leads.fields);
     for (const field of [

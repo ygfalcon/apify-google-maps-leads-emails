@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { enrichWebsite as engineEnrich, fetchHtml } from '../src/web/enrich.js';
+import { closeScanPool } from '../src/web/scan-pool.js';
 import { extractPage, extractSocials, finalizeContacts, isValidEmailSyntax } from '../src/web/extract.js';
 import { enrichWebsite, isPlausibleEmail } from '../src/contacts.js';
+
+test.after(async () => {
+    await closeScanPool();
+});
 import { fetchPlaceDetail } from '../src/detail.js';
 import { parsePreviewPayload, toDatasetItem } from '../src/place.js';
 
@@ -403,8 +408,8 @@ test('dataset rows carry third-party emails and German impressum fields, and pri
     assert.equal(empty.impressumOwner, null);
     assert.equal(empty.vatId, null);
     const pricing = JSON.parse(fs.readFileSync(new URL('../.actor/pricing.json', import.meta.url), 'utf8'));
-    assert.equal(pricing.events.find((event) => event.eventName === 'place-scraped').priceUsd, 0.003);
-    assert.equal(pricing.events.find((event) => event.eventName === 'contacts-enriched').priceUsd, 0.001);
+    assert.equal(pricing.events.find((event) => event.eventName === 'place-scraped').priceUsd, 0.0034);
+    assert.equal(pricing.events.find((event) => event.eventName === 'contacts-enriched').priceUsd, 0.0015);
     const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
     assert.match(main, /const proxy = await selectProxy\(/);
     assert.match(main, /createEnrichmentCache/);

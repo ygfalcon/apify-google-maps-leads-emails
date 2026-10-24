@@ -90,14 +90,15 @@ export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineM
         out.error = err?.message === 'enrich_timeout' ? 'website_timeout' : 'website_unreachable';
         return out;
     }
-    if (r.error) { out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error; return out; }
+    out.bytes = r.bytes || 0;
     const host = hostFromUrl(r.finalUrl || website);
     const plausible = (r.emails || []).filter(isPlausibleEmail);
     out.emails = plausible.filter((email) => !isThirdPartyEmail(email, host)).slice(0, 10);
     out.thirdPartyEmails = plausible.filter((email) => isThirdPartyEmail(email, host)).slice(0, 10);
-    out.phones = r.phones.slice(0, 5);
+    if (r.error) out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error;
+    out.phones = (r.phones || []).slice(0, 5);
     for (const [k, v] of Object.entries(r.socials || {})) if (v?.length) out.socials[k] = v;
-    out.pagesScanned = r.pagesScanned;
+    out.pagesScanned = r.pagesScanned || 0;
     out.impressumOwner = r.impressum?.owner || null;
     out.vatId = r.impressum?.vatId || null;
     out.bestContact = r.bestContact ? { email: r.bestContact.email, name: r.bestContact.name, role: r.bestContact.role } : null;

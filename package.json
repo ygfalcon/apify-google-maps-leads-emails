@@ -9,7 +9,7 @@
     "test": "node --test"
   },
   "keywords": [],
-  "author": "",
+  "author": "falcon.sol (https://x.com/ygfalcon)",
   "license": "ISC",
   "dependencies": {
     "apify": "^3.7.2",

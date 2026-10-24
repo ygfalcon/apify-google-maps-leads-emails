@@ -124,7 +124,7 @@ const NAME_STOP = /^(contact us|about us|read more|learn more|get in touch|email
 const SOCIAL_RULES = [
     {
         key: 'facebook',
-        re: /https?:\/\/(?:(?:www|m|web)\.)?(?:facebook\.com|fb\.com)\/(?:pages\/[A-Za-z0-9.\-]+\/[0-9]+|profile\.php\?id=[0-9]+|(?!sharer(?:\.php)?|share(?:\.php)?|plugins|dialog|tr|login|recover|watch|photo\.php|privacy|policies|help|settings|story\.php|people|pg|events|notes)[A-Za-z0-9.]{2,})(?:\/[A-Za-z0-9.\-]+)?/gi,
+        re: /https?:\/\/(?:(?:www|m|web|mbasic)\.)?(?:facebook\.com|fb\.com)\/(?:pages\/[A-Za-z0-9.\-]+\/[0-9]+|profile\.php\?id=[0-9]+|people\/[A-Za-z0-9.\-]+\/[0-9]+|p\/[A-Za-z0-9.\-]{2,}(?:\/[0-9]+)?|(?!sharer(?:\.php)?|share(?:\.php)?|plugins|dialog|tr|login|recover|watch|photo\.php|privacy|policies|help|settings|story\.php|people|pg|events|notes)[A-Za-z0-9.]{2,})(?:\/[A-Za-z0-9.\-]+)?/gi,
     },
     {
         key: 'instagram',
@@ -176,18 +176,27 @@ const SOCIAL_RULES = [
     },
 ]
 
-const COMMON_PATHS = [
-    ['/contact', 'contact', 95],
-    ['/kontakt', 'contact', 68],
-    ['/about', 'about', 52],
-    ['/impressum', 'impressum', 50],
-    ['/contact-us', 'contact', 46],
-    ['/get-in-touch', 'contact', 44],
-    ['/contacto', 'contact', 43],
-    ['/about-us', 'about', 36],
-    ['/imprint', 'impressum', 35],
-    ['/team', 'team', 30],
-]
+// One guessed URL per family. Real links always win. Impressum is guessed for DACH hosts
+// and pages that mention it, so US sites don't pay for a likely 404.
+export function guessPathsFor(hostname, html = '') {
+    const host = String(hostname || '').toLowerCase()
+    const de = /\.(de|at|ch|li)$/.test(host) || /impressum|imprint/i.test(String(html))
+    const paths = [
+        [de ? '/kontakt' : '/contact', 'contact', 95],
+        ['/about', 'about', 52],
+        ['/team', 'team', 48],
+    ]
+    if (de) paths.push(['/impressum', 'impressum', 90])
+    return paths
+}
+
+export function normalizeScanHtml(html) {
+    return String(html || '')
+        .replace(/\\u002f/gi, '/')
+        .replace(/\\\//g, '/')
+        .replace(/\\u0040/gi, '@')
+        .replace(/(^|["'\s(=])\/\/((?:[\w-]+\.)?(?:facebook\.com|fb\.com|instagram\.com|instagr\.am|linkedin\.com|twitter\.com|x\.com|youtube\.com|youtu\.be|tiktok\.com|pinterest\.com|discord\.gg|discord(?:app)?\.com|snapchat\.com|threads\.net|threads\.com|t\.me|telegram\.me|telegram\.org|reddit\.com|wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com))/gi, '$1https://$2')
+}
 
 export function emptySocials() {
     return Object.fromEntries(SOCIAL_NETWORKS.map((key) => [key, []]))
@@ -422,9 +431,25 @@ function walkJsonLd(node, people, depth) {
     }
 }
 
+function collectSameAs(node, urls, depth = 0) {
+    if (!node || depth > 8) return
+    if (Array.isArray(node)) {
+        for (const item of node) collectSameAs(item, urls, depth + 1)
+        return
+    }
+    if (typeof node !== 'object') return
+    for (const value of asArray(node.sameAs)) {
+        if (typeof value === 'string' && /^https?:\/\//i.test(value)) urls.push(value)
+    }
+    for (const value of Object.values(node)) {
+        if (value && typeof value === 'object') collectSameAs(value, urls, depth + 1)
+    }
+}
+
 function extractJsonLd(html) {
     const people = []
     const emails = []
+    const sameAs = []
     for (const match of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
         const raw = match[1].trim().replace(/<!--|-->/g, '')
         try {
@@ -436,11 +461,39 @@ function extractJsonLd(html) {
                 if (person.email) emails.push(person.email)
             }
             collectSchemaEmails(data, emails)
+            collectSameAs(data, sameAs)
         } catch {
             // Ignore broken JSON-LD blocks. Visible text is still scanned.
         }
     }
-    return { people, emails }
+    return { people, emails, sameAs }
+}
+
+function hiddenEmailRe() {
+    return /[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/gi
+}
+
+// Emails and phones that live in attributes or JSON blobs, not in visible text.
+function harvestHidden(html, emails, phoneEntries) {
+    const attrRe = /\b(?:content|aria-label|title|alt|data-contact|data-e-?mail)=["']([^"']{1,240})["']/gi
+    for (const match of html.matchAll(attrRe)) {
+        const decoded = deobfuscate(match[1])
+        for (const email of decoded.match(hiddenEmailRe()) || []) addEmail(emails, email, 'attribute')
+    }
+    const telRe = /"(?:telephone|phone|tel)"\s*:\s*"([^"\\]{7,40})"/gi
+    let budget = 0
+    for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+        const body = match[1]
+        if (!body) continue
+        budget += body.length
+        if (budget > 400_000) break
+        const decoded = deobfuscate(body)
+        for (const email of decoded.match(hiddenEmailRe()) || []) addEmail(emails, email, 'script')
+        for (const tel of body.matchAll(telRe)) {
+            const phone = normalizePhone(tel[1])
+            if (phone) phoneEntries.push({ phone, source: 'jsonld' })
+        }
+    }
 }
 
 function collectSchemaEmails(node, emails, depth = 0) {
@@ -861,15 +914,18 @@ export function discoverLinks(html, baseUrl, { followExternal = false } = {}) {
         if (!linktree && !external && scored.score <= 0 && !footerHrefs.has(match[1])) continue
         if (footerHrefs.has(match[1])) scored.score += 8
         seen.add(key)
-        links.push({ url: url.href, score: scored.score, family: scored.family })
+        links.push({ url: url.href, score: scored.score, family: scored.family, guessed: false })
     }
     if (!baseIsLinktree) {
-        for (const [pathname, family, score] of COMMON_PATHS) {
+        const have = new Set(links.map((link) => link.family))
+        for (const [pathname, family, score] of guessPathsFor(base.hostname, html)) {
+            if (have.has(family)) continue
             const url = new URL(pathname, base.origin).href
             const key = url.replace(/\/+$/, '/')
             if (seen.has(key)) continue
             seen.add(key)
-            links.push({ url, score, family })
+            have.add(family)
+            links.push({ url, score, family, guessed: true })
         }
     }
     links.sort((a, b) => b.score - a.score || a.url.localeCompare(b.url))
@@ -907,7 +963,7 @@ export function stripLongTokens(html, max = 400) {
 }
 
 export function extractPage(html, baseUrl, pageKind = 'home') {
-    const raw = stripLongTokens(String(html || '').slice(0, 1_500_000))
+    const raw = stripLongTokens(normalizeScanHtml(String(html || '').slice(0, 1_500_000)))
     const emails = new Map()
     const people = []
     const phoneEntries = []
@@ -932,6 +988,7 @@ export function extractPage(html, baseUrl, pageKind = 'home') {
 
     for (const match of raw.matchAll(/mailto:([^"'?\s>]+)/gi)) addEmail(emails, match[1], 'mailto')
     for (const match of raw.matchAll(/\bdata-(?:e-?mail|email)=["']([^"']+)["']/gi)) addEmail(emails, deobfuscate(match[1]), 'attribute')
+    harvestHidden(raw, emails, phoneEntries)
 
     const footerHtml = (raw.match(/<footer\b[\s\S]*?<\/footer>/gi) || []).join('\n')
     const footerText = deobfuscate(htmlToText(footerHtml))
@@ -954,7 +1011,7 @@ export function extractPage(html, baseUrl, pageKind = 'home') {
     }
     for (const phone of extractTextPhones(text)) phoneEntries.push({ phone, source: 'text' })
 
-    const socials = extractSocials(raw)
+    const socials = extractSocials(jsonLd.sameAs.length ? `${raw}\n${jsonLd.sameAs.join('\n')}` : raw)
     for (const url of socials.whatsapp) {
         const digits = url.replace(/\D/g, '')
         const phone = normalizePhone(`+${digits}`)
