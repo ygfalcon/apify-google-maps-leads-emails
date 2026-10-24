@@ -207,7 +207,7 @@ test('dataset item matches the dataset schema and keeps prices unchanged', () =>
 
 test('contact extractor still keeps same-domain emails and social profiles', () => {
     const html = `
-      <a href="mailto:Ada@Cafe.example">x</a>
+      <a href="mailto:Ada@Cafe.co">x</a>
       <a href="tel:+1 (813) 872-0200">p</a>
       <a href="https://www.facebook.com/sharer/sharer.php?u=1">share</a>
       <a href="https://www.instagram.com/everydayplumber">ig</a>
@@ -215,7 +215,7 @@ test('contact extractor still keeps same-domain emails and social profiles', () 
       <img src="photo@2x.png">
     `;
     const got = extractFromHtml(html, 'https://cafe.example/');
-    assert.deepEqual(got.emails, ['ada@cafe.example']);
+    assert.deepEqual(got.emails, ['ada@cafe.co']);
     assert.ok(got.phones.includes('+18138720200') || got.phones.some((p) => p.includes('8138720200')));
     assert.deepEqual(got.socials.instagram, ['https://www.instagram.com/everydayplumber']);
     assert.equal(got.socials.facebook, undefined);

@@ -1,8 +1,17 @@
 // Website contact enrichment: emails, phones, social profiles. Plain HTTP (no browser), retries, small page budget.
-import { gotScraping } from 'crawlee';
+import { gotScraping } from './http.js';
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,24}/g;
 const BAD_EMAIL = /\.(png|jpe?g|gif|svg|webp|css|js)$|@(example|domain|email|sentry|wixpress|sentry-next)\.|^(u00|x22)|@\d+x\./i;
+const BAD_TLD = /\.(png|jpe?g|gif|svg|webp|avif|ico|bmp|css|js|json|php|html?|aspx?|woff2?|ttf|mp4|pdf|local|invalid|test|example)$/i;
+const BAD_DOMAIN = /@(?:[a-z0-9-]+\.)*(example\.(com|org|net)|domain\.com|email\.com|yourdomain\.com|yoursite\.com|mysite\.com|website\.com|company\.com|sentry\.io|sentry\.wixpress\.com|wixpress\.com|godaddy\.com|placeholder\.com|test\.com)$/i;
+const BAD_LOCAL = /^(john\.wick|john\.doe|jane\.doe|user|name|your|yourname|youremail|test|email|example|sample|firstname\.lastname|first\.last|username|info@domain)@/i;
+export function isPlausibleEmail(e) {
+    if (!e || e.length >= 80 || BAD_EMAIL.test(e) || BAD_TLD.test(e) || BAD_DOMAIN.test(e) || BAD_LOCAL.test(e)) return false;
+    const [local, domain] = e.split('@');
+    if (!local || !domain || domain.includes('..') || local.startsWith('.') || /^[0-9a-f]{24,}$/i.test(local)) return false;
+    return true;
+}
 const SOCIAL = {
     facebook: /https?:\/\/(?:www\.|m\.)?facebook\.com\/(?!sharer|share|plugins|tr\b|dialog)[A-Za-z0-9_.\-/]+/gi,
     instagram: /https?:\/\/(?:www\.)?instagram\.com\/(?!p\/|explore|share)[A-Za-z0-9_.]+/gi,
@@ -44,7 +53,7 @@ export function extractFromHtml(html, baseUrl) {
         try { const u = new URL(m[1], baseUrl); if (CONTACT_HINT.test(u.pathname) && u.host === new URL(baseUrl).host) links.push(u.href); } catch {}
     }
     return {
-        emails: [...emails].map((e) => e.replace(/^[^a-z0-9]+|[^a-z]+$/g, '')).filter((e) => !BAD_EMAIL.test(e) && e.length < 80 && !/^(john\.wick|user|name|your|test)@/.test(e)),
+        emails: [...emails].map((e) => e.replace(/^[^a-z0-9]+|[^a-z]+$/g, '')).filter(isPlausibleEmail),
         phones: [...phones].filter((p) => p.length >= 7),
         socials, contactLinks: [...new Set(links)].slice(0, 3),
     };

@@ -1,4 +1,4 @@
-# 📍 Google Maps Scraper + Emails: Business Leads with Phone, Website & Socials
+# 📍 Google Maps Scraper + Emails: Business Leads & Socials
 
 **Type a business type and a city, get a ready-to-call lead list.** Every Google Maps result comes with phone, website, full address, rating and star breakdown, hours and coordinates, plus **emails and social profiles pulled from the business's own website**, all in the same run. No login, no Google API key, no add-ons to configure.
 
