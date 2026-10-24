@@ -105,11 +105,20 @@ export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineM
     return out;
 }
 
+const TRACKING_PARAMS = new Set(['gclid', 'fbclid', 'gbraid', 'wbraid']);
+
 export function websiteCacheKey(website) {
     const url = new URL(String(website).startsWith('http') ? website : `https://${website}`);
     const host = url.hostname.replace(/^www\./, '').toLowerCase();
     const path = url.pathname.replace(/\/+$/, '');
-    return `${host}${path}`;
+    const params = [...url.searchParams.entries()]
+        .filter(([key]) => {
+            const name = key.toLowerCase();
+            return !name.startsWith('utm_') && !TRACKING_PARAMS.has(name);
+        })
+        .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+    const query = params.map(([key, value]) => `${key}=${value}`).join('&');
+    return query ? `${host}${path}?${query}` : `${host}${path}`;
 }
 
 // One in-flight result per host + path. A failure is dropped so the next location can try again.

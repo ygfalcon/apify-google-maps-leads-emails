@@ -1318,6 +1318,20 @@ export function isThirdPartyEmail(email, siteHost) {
     return true
 }
 
+// A Maps "website" that is only a social profile. Scraping it attributes the platform's
+// own emails and phones to the business and still counts as a reached site.
+export function isPlatformProfileUrl(url) {
+    let host = ''
+    try {
+        host = new URL(String(url || '')).hostname.replace(/^(?:www|m)\./, '').toLowerCase()
+    } catch {
+        return false
+    }
+    if (/^(?:facebook\.com|fb\.com|instagram\.com|instagr\.am|linkedin\.com|twitter\.com|x\.com|youtube\.com|youtu\.be|tiktok\.com|pin\.it|t\.me|wa\.me)$/.test(host)) return true
+    if (/^pinterest\.[a-z.]+$/.test(host)) return true
+    return host.endsWith('.facebook.com') || host.endsWith('.instagram.com') || host.endsWith('.linkedin.com') || host.endsWith('.tiktok.com')
+}
+
 export function wantsImpressum(countryCode, website) {
     if (String(countryCode || '').toUpperCase() === 'DE') return true
     try {

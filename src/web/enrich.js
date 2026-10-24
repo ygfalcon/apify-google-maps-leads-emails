@@ -6,8 +6,10 @@ import {
     finalizeContacts,
     hostFromUrl,
     htmlToText,
+    isPlatformProfileUrl,
     mergeSocials,
     pageKindFromUrl,
+    registrableDomain,
 } from './extract.js'
 import { getScanPool } from './scan-pool.js'
 
@@ -171,9 +173,14 @@ export async function enrichWebsite(website, {
         return empty
     }
     const fetchOptions = { proxyUrl, fetchImpl, timeoutMs }
-    const scan = scanPool || getScanPool()
     let bytes = 0
     const seeded = extractSocials(start.href)
+    if (isPlatformProfileUrl(start.href)) {
+        empty.socials = mergeSocials([seeded])
+        empty.error = 'website_unreachable'
+        return empty
+    }
+    const scan = scanPool || getScanPool()
     const home = await openHomepage(start.href, fetchOptions)
     if (!home) {
         empty.socials = mergeSocials([seeded])
@@ -181,6 +188,15 @@ export async function enrichWebsite(website, {
         return empty
     }
     bytes += home.bytes || 0
+    const requestedHost = hostFromUrl(start.href)
+    const landedHost = hostFromUrl(home.finalUrl)
+    if (requestedHost && landedHost && registrableDomain(requestedHost) !== registrableDomain(landedHost)) {
+        empty.socials = mergeSocials([seeded])
+        empty.finalUrl = home.finalUrl
+        empty.bytes = bytes
+        empty.error = 'website_unreachable'
+        return empty
+    }
 
     const pageBudget = Math.min(Math.max(1, maxPages), 10)
     const seen = new Set()
