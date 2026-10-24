@@ -30,8 +30,9 @@
     "extractContacts": {
       "title": "Extract emails & socials from websites",
       "type": "boolean",
-      "default": false,
-      "description": "Visits each business website (home + contact/about pages) for emails, phones and social profiles."
+      "default": true,
+      "prefill": true,
+      "description": "On by default. Visits each business website (home + contact/about pages) for emails, phones and social profiles. Turn off to skip website visits."
     },
     "maxContactPages": {
       "title": "Max website pages per business",

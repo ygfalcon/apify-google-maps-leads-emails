@@ -21,7 +21,11 @@ Popular times and price level are read when Google sends them. Logged-out place 
 { "searchTerms": ["plumber"], "location": "Tampa, FL", "maxPlacesPerSearch": 50, "extractContacts": true }
 ```
 
+`extractContacts` defaults to on, including when the input omits it. Set it to false to skip website visits and pay only the place event. A saved Apify task keeps the input it was stored with: if "Extract emails & socials from websites" is unchecked, that task still skips enrichment until the box is checked.
+
 `maxReviews` defaults to 0. Set it to 1–8 to keep that many reviews from the place payload. That does not open extra review pages.
+
+The Output tab uses the Leads view. That view includes the split address, the five star-count columns, opening hours, and `contactsStatus` (`ok`, `skipped`, `no_website`, or `website_unreachable`). `skipped` means this run did not visit websites.
 
 Google Maps shows up to about 120 places per search. For bigger areas, run several locations or several search terms.
 
@@ -74,7 +78,7 @@ The same pipeline on Gramercy Tavern returned the description, an OpenTable rese
 - **place-scraped**: $0.003 per unique business
 - **contacts-enriched**: $0.001 per business whose website was reached
 
-1,000 leads with contacts are $4. Set `extractContacts: false` to pay $3 per 1,000.
+1,000 leads with contacts are $4. `extractContacts` is on unless the input sets it to false, which is $3 per 1,000.
 
 ### Platform cost per 1,000 places
 

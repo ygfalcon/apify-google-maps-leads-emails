@@ -186,6 +186,23 @@ test('dataset item matches the dataset schema and keeps prices unchanged', () =>
     for (const key of schema.fields.required) assert.ok(item[key]);
     assert.equal(pricing.events.find((e) => e.eventName === 'place-scraped').priceUsd, 0.003);
     assert.equal(pricing.events.find((e) => e.eventName === 'contacts-enriched').priceUsd, 0.001);
+    const leads = schema.views.leads.transformation;
+    const shown = new Set(leads.fields);
+    for (const field of [
+        'street', 'neighborhood', 'city', 'state', 'postalCode', 'countryCode',
+        'reviewsDistribution.oneStar', 'reviewsDistribution.twoStar', 'reviewsDistribution.threeStar',
+        'reviewsDistribution.fourStar', 'reviewsDistribution.fiveStar',
+        'contactsStatus', 'emails', 'socials',
+    ]) {
+        assert.ok(shown.has(field), `Leads view hides ${field}`);
+    }
+    assert.ok(leads.flatten.includes('reviewsDistribution'));
+    assert.ok(leads.flatten.includes('location'));
+    const input = JSON.parse(fs.readFileSync(new URL('../.actor/input_schema.json', import.meta.url), 'utf8'));
+    assert.equal(input.properties.extractContacts.default, true);
+    assert.equal(input.properties.extractContacts.prefill, true);
+    const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    assert.match(main, /extractContacts = true/);
 });
 
 test('contact extractor still keeps same-domain emails and social profiles', () => {
@@ -203,6 +220,24 @@ test('contact extractor still keeps same-domain emails and social profiles', () 
     assert.deepEqual(got.socials.instagram, ['https://www.instagram.com/everydayplumber']);
     assert.equal(got.socials.facebook, undefined);
     assert.ok(got.contactLinks[0].includes('/contact'));
+});
+
+test('a site with only a placeholder email still keeps its social profiles', () => {
+    const html = `
+      <input placeholder="you@email.com" type="email">
+      <a href="tel:+1-832-621-4939">call</a>
+      <meta property="article:publisher" content="https://www.facebook.com/p/Affordable-Plumbing-Services-100076940813037/">
+      <a href="https://x.com/txaffordable">x</a>
+      <a href="https://www.youtube.com/watch?v=sO90ZlNjZ6E">video</a>
+      <a href="/contact/">Contact</a>
+    `;
+    const got = extractFromHtml(html, 'https://houston-plumbingservices.com/');
+    assert.deepEqual(got.emails, []);
+    assert.deepEqual(got.socials.facebook, ['https://www.facebook.com/p/Affordable-Plumbing-Services-100076940813037']);
+    assert.deepEqual(got.socials.twitter, ['https://x.com/txaffordable']);
+    assert.equal(got.socials.youtube, undefined);
+    assert.ok(got.phones.includes('+18326214939'));
+    assert.ok(got.contactLinks.some((url) => url.includes('/contact')));
 });
 
 test('the search scroll loop is the 11cf288 loop', () => {
