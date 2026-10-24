@@ -85,7 +85,15 @@ export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineM
         out.error = err?.message === 'enrich_timeout' ? 'website_timeout' : 'website_unreachable';
         return out;
     }
-    if (r.error) { out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error; return out; }
+    out.bytes = r.bytes || 0;
+    if (r.error) {
+        out.error = r.error === 'invalid_url' ? 'website_unreachable' : r.error;
+        out.emails = (r.emails || []).filter(isPlausibleEmail).slice(0, 10);
+        out.phones = (r.phones || []).slice(0, 5);
+        for (const [k, v] of Object.entries(r.socials || {})) if (v?.length) out.socials[k] = v;
+        out.pagesScanned = r.pagesScanned || 0;
+        return out;
+    }
     out.emails = r.emails.filter(isPlausibleEmail).slice(0, 10);
     out.phones = r.phones.slice(0, 5);
     for (const [k, v] of Object.entries(r.socials)) if (v?.length) out.socials[k] = v;

@@ -2,9 +2,12 @@ import { Actor, log } from 'apify';
 import { PlaywrightCrawler } from 'crawlee';
 import { enrichWebsite, withDeadline } from './contacts.js';
 import { estimatePerThousand } from './cost.js';
-import { fetchPlaceDetail } from './detail.js';
+import { createPlaceDeduper, postKeys, preKeys } from './dedupe.js';
+import { fetchPlaceDetail, shouldRetryDetail } from './detail.js';
+import { drainDeadlineMs, PLACE_DEADLINE_MS } from './limits.js';
 import { normalizePhone, toDatasetItem } from './place.js';
 import { createLimiter } from './pool.js';
+import { closeScanPool } from './web/scan-pool.js';
 
 await Actor.init();
 const input = (await Actor.getInput()) || {};
@@ -18,7 +21,9 @@ const reviewLimit = Math.max(0, Math.min(Number(maxReviews) || 0, 8));
 const contactPages = Math.max(1, Math.min(Number(maxContactPages) || 3, 6));
 log.info(`extractContacts=${Boolean(extractContacts)} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
 const proxy = proxyInput?.useApifyProxy || proxyInput?.proxyUrls ? await Actor.createProxyConfiguration(proxyInput) : undefined;
-const seenPlaces = new Set();
+const deduper = createPlaceDeduper();
+const contactMemo = new Map();
+const countedSites = new Set();
 let pushed = 0;
 const canCharge = !!process.env.ACTOR_RUN_ID; // charge only on platform
 const startedAt = Date.now();
@@ -27,7 +32,6 @@ const DETAIL_CONCURRENCY = 20;
 const limit = createLimiter(DETAIL_CONCURRENCY);
 const tasks = [];
 let closing = false; // set when the drain deadline passes: late work must not push or charge
-const DRAIN_DEADLINE_MS = 120000;
 
 const searches = [
     ...(Array.isArray(searchTerms) ? searchTerms : [searchTerms]).map((t) => String(t || '').trim()).filter(Boolean).map((t) => ({ term: t, url: `https://www.google.com/maps/search/${encodeURIComponent(location ? `${t} in ${location}` : t)}?hl=${language}` })),
@@ -49,12 +53,18 @@ const crawler = new PlaywrightCrawler({
         await page.route('**/*', (r) => { const q = r.request(); return (BLOCK_TYPES.has(q.resourceType()) || BLOCK_URL.test(q.url())) ? r.abort() : r.continue(); });
     }],
     async requestHandler({ page, request }) {
+        const queued = new Set();
+        const enqueue = (url) => {
+            if (!url || queued.has(url) || queued.size >= maxTotal) return;
+            queued.add(url);
+            schedule(url, request.userData.term, queued.size);
+        };
         await acceptConsent(page);
         const listT0 = Date.now();
         // A one-result search redirects to the place before a feed exists. Schedule it immediately.
         if (page.url().includes('/maps/place/') && await page.locator('div[role="feed"]').count() === 0) {
             stats.scrollMs.push(Date.now() - listT0);
-            schedule(page.url().split('?')[0], request.userData.term, 1);
+            enqueue(page.url().split('?')[0]);
             return;
         }
         // SEARCH: scroll feed until enough unique places or end of list
@@ -63,7 +73,7 @@ const crawler = new PlaywrightCrawler({
         if (!hasFeed) { // single result redirects straight to a place
             if (page.url().includes('/maps/place/')) {
                 stats.scrollMs.push(Date.now() - listT0);
-                schedule(page.url().split('?')[0], request.userData.term, 1);
+                enqueue(page.url().split('?')[0]);
                 return;
             }
             throw new Error('Results feed not found (possible block); retrying');
@@ -72,15 +82,16 @@ const crawler = new PlaywrightCrawler({
         const collect = async () => { for (const h of await page.$$eval('a.hfpxzc', (as) => as.map((a) => a.href))) links.add(h.split('?')[0]); };
         // Google lazy-loads ~20 results per page only when the last card scrolls into view; wait for the feed to grow
         // instead of a fixed short sleep, and allow several retries (with a wheel nudge) before declaring the list exhausted.
+        // Places already on screen start detail and contact work while the feed is still scrolling.
         while (links.size < want && stale < 8 && Date.now() - t0 < 180000) {
-            await collect(); const before = links.size; if (before >= want) break;
+            await collect(); for (const url of links) enqueue(url); const before = links.size; if (before >= want) break;
             if (await page.locator('span.HlvSq, p.fontBodyMedium > span > span.HlvSq').count()) break; // "You've reached the end of the list."
             const cards = await page.locator('a.hfpxzc').count();
             await page.locator('a.hfpxzc').last().scrollIntoViewIfNeeded().catch(() => {});
             await feed.evaluate((el) => el.scrollTo(0, el.scrollHeight));
             if (stale >= 2) { await feed.hover().catch(() => {}); await page.mouse.wheel(0, 3000).catch(() => {}); }
             await page.waitForFunction((n) => document.querySelectorAll('a.hfpxzc').length > n || !!document.querySelector('span.HlvSq'), cards, { timeout: 5000 }).catch(() => {});
-            await collect(); stale = links.size === before ? stale + 1 : 0;
+            await collect(); for (const url of links) enqueue(url); stale = links.size === before ? stale + 1 : 0;
         }
         const ended = (await page.locator('span.HlvSq').count()) > 0;
         if (links.size < want && !ended && request.retryCount < 2) throw new Error(`Feed stalled at ${links.size}/${want} places before end of list; retrying with a fresh session`);
@@ -95,7 +106,19 @@ const crawler = new PlaywrightCrawler({
 });
 
 function schedule(url, term, rank) {
-    tasks.push(limit(() => processPlace({ url, term, rank }).catch((err) => log.warning(`Place ${url}: ${err.message}`))));
+    const keys = preKeys(url);
+    if (deduper.conflicts(keys)) return;
+    deduper.remember(keys);
+    tasks.push(limit(() => {
+        const job = processPlace({ url, term, rank }).catch((err) => log.warning(`Place ${url}: ${err.message}`));
+        return withDeadline(job, PLACE_DEADLINE_MS, 'place_timeout').catch((err) => log.warning(`Place ${url}: ${err.message}`));
+    }));
+}
+
+function enrichCached(website, opts) {
+    const key = String(website).replace(/\/+$/, '');
+    if (!contactMemo.has(key)) contactMemo.set(key, enrichWebsite(website, opts));
+    return contactMemo.get(key);
 }
 
 async function processPlace({ url, term, rank }) {
@@ -114,9 +137,9 @@ async function processPlace({ url, term, rank }) {
         log.info(`Skipping non-business result "${place.title}"`);
         return;
     }
-    const key = place.placeId || place.fid || `${place.title}|${place.address}`;
-    if (seenPlaces.has(key)) return;
-    seenPlaces.add(key);
+    const identity = postKeys(place);
+    if (deduper.conflicts(identity)) return;
+    deduper.remember(identity);
     let emails = [];
     let socials = {};
     let websitePhones = [];
@@ -124,10 +147,14 @@ async function processPlace({ url, term, rank }) {
     if (extractContacts && place.website) {
         const contactProxy = proxy ? await proxy.newUrl() : undefined;
         const c0 = Date.now();
-        const enriched = await enrichWebsite(place.website, { proxyUrl: contactProxy, maxPages: contactPages });
+        const siteKey = String(place.website).replace(/\/+$/, '');
+        const enriched = await enrichCached(place.website, { proxyUrl: contactProxy, maxPages: contactPages });
         stats.contactMs.push(Date.now() - c0);
-        stats.contactBytes += enriched.bytes || 0;
-        stats.contactPages += enriched.pagesScanned || 0;
+        if (!countedSites.has(siteKey)) {
+            countedSites.add(siteKey);
+            stats.contactBytes += enriched.bytes || 0;
+            stats.contactPages += enriched.pagesScanned || 0;
+        }
         emails = enriched.emails;
         socials = enriched.socials;
         websitePhones = enriched.phones.map((phone) => normalizePhone(phone)).filter(Boolean);
@@ -164,6 +191,7 @@ async function loadDetail(url, proxyUrl) {
         stats.detailMs.push(last.ms || 0);
         stats.detailBytes += last.bytes || 0;
         if (last.place) return last;
+        if (!shouldRetryDetail(last.error)) return last;
     }
     return last;
 }
@@ -174,18 +202,28 @@ if (!searches.length) {
 await crawler.run(searches.map((s) => ({ url: s.url, uniqueKey: s.url, label: 'SEARCH', userData: { term: s.term } })));
 const scrollDoneAt = Date.now();
 // Every place has its own hard limits, but never let one stuck job keep the run (and its compute) alive.
+const drainMs = drainDeadlineMs(tasks.length);
+const hardStop = setTimeout(() => {
+    log.warning('Hard stop: exiting so this run cannot hang.');
+    process.exit(0);
+}, drainMs + 30000);
 const allDone = Promise.allSettled(tasks).then(() => true);
-const finished = await withDeadline(allDone, DRAIN_DEADLINE_MS, 'drain_timeout').catch(() => false);
+const finished = await withDeadline(allDone, drainMs, 'drain_timeout').catch(() => false);
 if (!finished) {
     closing = true;
-    log.warning(`Stopped waiting for unfinished places after ${DRAIN_DEADLINE_MS / 1000}s; they were not saved or charged.`);
+    log.warning(`Stopped waiting for unfinished places after ${drainMs / 1000}s; they were not saved or charged.`);
 }
 const totalMs = Date.now() - startedAt;
 const report = buildReport({ stats, pushed, totalMs, scrollDoneAt, startedAt });
 log.info(`Timing ${JSON.stringify(report)}`);
 await Actor.setValue('TIMING', report).catch(() => {});
 log.info(`Done. ${pushed} unique places saved.`);
-await Actor.exit();
+try {
+    await closeScanPool();
+    await Actor.exit();
+} finally {
+    clearTimeout(hardStop);
+}
 
 function buildReport({ stats: s, pushed: count, totalMs, scrollDoneAt, startedAt: t0 }) {
     const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
