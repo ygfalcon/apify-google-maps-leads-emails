@@ -207,6 +207,7 @@ export async function enrichWebsite(website, {
     const socialLists = [seeded]
     const pages = []
     const impressum = { owner: null, vatId: null }
+    let scanFailed = false
     const startHost = hostFromUrl(home.finalUrl)
     const startIsLinktree = pageKindFromUrl(home.finalUrl) === 'linktree'
 
@@ -214,6 +215,10 @@ export async function enrichWebsite(website, {
         if (pages.includes(page.finalUrl)) return
         // Regex scanning runs in a worker so a pathological page can be killed without freezing the run.
         const extracted = await scan.scan(page.html, page.finalUrl, kind)
+        if (extracted?.failed) {
+            scanFailed = true
+            return
+        }
         emailRows.push(...(extracted.emails || []).map((row) => ({ ...row, mxValid: null })))
         people.push(...(extracted.people || []))
         phoneEntries.push(...(extracted.phones || []))
@@ -283,6 +288,6 @@ export async function enrichWebsite(website, {
         pages,
         finalUrl: home.finalUrl,
         bytes,
-        error: null,
+        error: pages.length === 0 && scanFailed ? 'contacts_failed' : null,
     }
 }

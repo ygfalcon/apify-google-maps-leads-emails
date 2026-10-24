@@ -33,6 +33,7 @@ export function postKeys(place) {
     const keys = [];
     if (place.placeId) keys.push(`pid:${place.placeId}`);
     if (place.cid) keys.push(`cid:${place.cid}`);
+    if (place.fid) keys.push(`fid:${String(place.fid).toLowerCase()}`);
     const host = websiteHost(place.website);
     if (place.phone && host) keys.push(`phone:${place.phone}|${host}`);
     const name = normalizeLoose(place.title);
@@ -41,6 +42,12 @@ export function postKeys(place) {
     const address = normalizeLoose(place.address);
     if (name && address) keys.push(`addr:${name}|${address}`);
     return keys;
+}
+
+// Keys this URL did not already claim. A place must not count as a duplicate of itself.
+export function foreignKeys(url, place) {
+    const owned = new Set(preKeys(url));
+    return postKeys(place).filter((key) => key && !owned.has(key));
 }
 
 export function createPlaceDeduper() {

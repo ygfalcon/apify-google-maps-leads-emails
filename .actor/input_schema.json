@@ -32,7 +32,7 @@
       "type": "boolean",
       "default": true,
       "prefill": true,
-      "description": "Visits each business's website (home, contact, about, team and impressum/imprint legal pages) to collect emails, phone numbers and social profiles. Adds $0.0015 per place, charged only when the site loads. Turn off for places-only data at $0.0034 each."
+      "description": "Visits each business's website (home, contact, about, team and impressum/imprint legal pages) to collect emails, phone numbers and social profiles. Adds $0.0015 per place, charged only when the site loads and a contact is kept. Turn off for places-only data at $0.0034 each."
     },
     "maxContactPages": {
       "title": "Max website pages per business",

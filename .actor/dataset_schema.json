@@ -227,7 +227,7 @@
       },
       "contactsStatus": {
         "type": "string",
-        "description": "ok, skipped, no_website, or an error message for website enrichment."
+        "description": "ok, skipped, no_website, website_unreachable, website_timeout, contacts_failed, or another error from website enrichment."
       },
       "scrapedAt": {
         "type": "string",

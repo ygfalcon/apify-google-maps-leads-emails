@@ -2,10 +2,13 @@ import { Actor, log } from 'apify';
 import { PlaywrightCrawler } from 'crawlee';
 import { createEnrichmentCache, enrichWebsite, websiteCacheKey, withDeadline } from './contacts.js';
 import { estimatePerThousand } from './cost.js';
-import { createPlaceDeduper, postKeys, preKeys } from './dedupe.js';
+import { eventsToCharge } from './billing.js';
+import { createPlaceDeduper, foreignKeys, preKeys } from './dedupe.js';
 import { fetchPlaceDetail, shouldRetryDetail } from './detail.js';
+import { normalizeRunInput } from './input.js';
 import { drainDeadlineMs, PLACE_DEADLINE_MS } from './limits.js';
 import { decideRunFinish, hardStopExitCode } from './run-finish.js';
+import { redactSecrets } from './redact.js';
 import { normalizePhone, toDatasetItem } from './place.js';
 import { createLimiter } from './pool.js';
 import { selectProxy } from './proxy.js';
@@ -26,11 +29,22 @@ function clampCount(value, min, max, fallback) {
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(Math.trunc(n), max));
 }
+function flagOn(value, fallback) {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return Number.isFinite(value) && value !== 0;
+    const text = String(value).trim().toLowerCase();
+    if (text === 'false' || text === '0' || text === 'no' || text === 'off') return false;
+    if (text === 'true' || text === '1' || text === 'yes' || text === 'on') return true;
+    return fallback;
+}
+const contactsOn = flagOn(extractContacts, true);
 const maxTotal = clampCount(maxPlacesPerSearch, 1, 500, 20);
 const reviewLimit = clampCount(maxReviews, 0, 8, 0);
 const contactPages = clampCount(maxContactPages, 1, 6, 3);
-log.info(`extractContacts=${Boolean(extractContacts)} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
+log.info(`extractContacts=${contactsOn} maxPlaces=${maxTotal} maxContactPages=${contactPages}`);
 const proxy = await selectProxy(proxyInput, { createProxy: (input) => Actor.createProxyConfiguration(input), log });
+const checked = normalizeRunInput({ language, skipClosed, minRating });
 const deduper = createPlaceDeduper();
 const scheduledByTerm = new Map();
 const scheduledAreas = new Set();
@@ -57,11 +71,19 @@ const searches = [
         const raw = typeof u === 'string' ? u : u?.url;
         let parsed;
         try { parsed = new URL(String(raw || '')); } catch { return null; }
-        const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
-        const mapsHost = /^(?:maps\.)?google\.[a-z.]+$/.test(host);
-        const mapsPath = parsed.pathname === '/maps' || parsed.pathname.startsWith('/maps/');
-        if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !mapsHost || !mapsPath) return null;
+        if (parsed.username || parsed.password) return null;
         if (parsed.protocol === 'http:') parsed.protocol = 'https:';
+        if (parsed.protocol !== 'https:') return null;
+        const host = parsed.hostname.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
+        const mapsPath = parsed.pathname === '/maps' || parsed.pathname.startsWith('/maps/');
+        const mapsSub = host === 'maps.google.com' || /^maps\.google\.(?:[a-z]{2,3}|com?\.[a-z]{2}|co\.[a-z]{2})$/.test(host);
+        if (mapsSub) return (parsed.pathname === '/' || mapsPath) ? { term: null, url: parsed.href } : null;
+        const labels = host.split('.');
+        if (labels[0] !== 'google' || labels.length > 3 || !mapsPath) return null;
+        const tldOk = labels.length === 2
+            ? (labels[1] === 'com' || /^[a-z]{2,3}$/.test(labels[1]))
+            : /^(?:com|co|org|net|ac|gov)\.[a-z]{2}$/.test(`${labels[1]}.${labels[2]}`);
+        if (!tldOk) return null;
         return { term: null, url: parsed.href };
     }).filter(Boolean),
 ];
@@ -132,15 +154,26 @@ const crawler = new PlaywrightCrawler({
         const depth = request.userData.depth || 0;
         const view = request.userData.view || parseMapView(page.url());
         const extra = planAreaSplits({
-            found: links.size, wanted: maxTotal, depth, view, term: request.userData.term, location, language, seenKeys: scheduledAreas,
+            found: links.size, wanted: maxTotal, depth, view, term: request.userData.term, location, language: checked.language, seenKeys: scheduledAreas,
         });
         for (const req of extra) scheduledAreas.add(req.uniqueKey);
         if (extra.length && typeof addRequests === 'function') await addRequests(extra);
     },
-    failedRequestHandler({ request }, err) { searchFailures += 1; log.warning(`Failed ${request.url}: ${err.message}`); },
+    failedRequestHandler({ request }, err) { searchFailures += 1; log.warning(`Failed ${request.url}: ${redactSecrets(err?.message || err)}`); },
 });
 
+async function nextProxyUrl() {
+    if (!proxy) return undefined;
+    try {
+        return await proxy.newUrl();
+    } catch (err) {
+        log.warning(`Proxy URL unavailable (${redactSecrets(err?.message || err)}); continuing direct.`);
+        return undefined;
+    }
+}
+
 function schedule(url, term, rank) {
+    if (!url) return;
     const keys = preKeys(url);
     if (deduper.conflicts(keys)) return;
     const bucket = term || '';
@@ -149,29 +182,33 @@ function schedule(url, term, rank) {
     deduper.remember(keys);
     scheduledByTerm.set(bucket, count + 1);
     const placeRank = rank || count + 1;
+    const gate = { open: true };
     tasks.push(limit(() => {
-        const job = processPlace({ url, term, rank: placeRank }).catch((err) => log.warning(`Place ${url}: ${err.message}`));
-        return withDeadline(job, PLACE_DEADLINE_MS, 'place_timeout').catch((err) => log.warning(`Place ${url}: ${err.message}`));
+        const job = processPlace({ url, term, rank: placeRank, gate }).catch((err) => log.warning(`Place ${url}: ${redactSecrets(err?.message || err)}`));
+        return withDeadline(job, PLACE_DEADLINE_MS, 'place_timeout').catch((err) => {
+            gate.open = false;
+            log.warning(`Place ${url}: ${redactSecrets(err?.message || err)}`);
+        });
     }));
 }
 
-async function processPlace({ url, term, rank }) {
-    const proxyUrl = proxy ? await proxy.newUrl() : undefined;
+async function processPlace({ url, term, rank, gate }) {
+    const proxyUrl = await nextProxyUrl();
     const loaded = await loadDetail(url, proxyUrl);
     if (!loaded?.place) {
         stats.detailFailures += 1;
-        log.warning(`No detail for ${url}: ${loaded?.error || 'unknown'}`);
+        log.warning(`No detail for ${url}: ${redactSecrets(loaded?.error || 'unknown')}`);
         return;
     }
     const place = loaded.place;
-    if (skipClosed && (place.permanentlyClosed || place.temporarilyClosed)) return;
-    if (minRating && (place.rating ?? 0) < minRating) return;
+    if (checked.skipClosed && (place.permanentlyClosed || place.temporarilyClosed)) return;
+    if (checked.minRating && (place.rating ?? 0) < checked.minRating) return;
     // A nonsense query can make Google jump to the city itself. Skip places that are not businesses.
     if (!place.category && !(place.categories || []).length && !place.phone && place.rating == null) {
         log.info(`Skipping non-business result "${place.title}"`);
         return;
     }
-    const identity = postKeys(place);
+    const identity = foreignKeys(url, place);
     if (deduper.conflicts(identity)) return;
     deduper.remember(identity);
     let emails = [];
@@ -180,9 +217,10 @@ async function processPlace({ url, term, rank }) {
     let vatId = null;
     let socials = {};
     let websitePhones = [];
+    let pagesScanned = 0;
     let contactsStatus = 'skipped';
-    if (extractContacts && place.website) {
-        const contactProxy = proxy ? await proxy.newUrl() : undefined;
+    if (contactsOn && place.website) {
+        const contactProxy = await nextProxyUrl();
         const c0 = Date.now();
         let siteKey = String(place.website).replace(/\/+$/, '');
         try { siteKey = websiteCacheKey(place.website); } catch { /* keep the raw key */ }
@@ -198,12 +236,13 @@ async function processPlace({ url, term, rank }) {
         thirdPartyEmails = enriched.thirdPartyEmails || [];
         socials = enriched.socials;
         websitePhones = enriched.phones.map((phone) => normalizePhone(phone)).filter(Boolean);
+        pagesScanned = enriched.pagesScanned || 0;
         contactsStatus = enriched.error || 'ok';
         if (wantsImpressum(place.countryCode, place.website)) {
             impressumOwner = enriched.impressumOwner || null;
             vatId = enriched.vatId || null;
         }
-    } else if (extractContacts) contactsStatus = 'no_website';
+    } else if (contactsOn) contactsStatus = 'no_website';
     const item = toDatasetItem(place, {
         searchTerm: term || null,
         rank,
@@ -217,13 +256,23 @@ async function processPlace({ url, term, rank }) {
         scrapedAt: new Date().toISOString(),
         sourceUrl: url,
     });
-    if (closing) return;
+    if (!gate?.open || closing) return;
+    const events = eventsToCharge({
+        title: item.title,
+        abandoned: !gate?.open || closing,
+        contactsStatus,
+        pagesScanned,
+        emails,
+        phones: websitePhones,
+        socials,
+    });
     await Actor.pushData(item);
     pushed += 1;
     log.info(`Saved #${pushed} ${item.title}`);
-    if (canCharge) {
-        await Actor.charge({ eventName: 'place-scraped' }).catch(() => {});
-        if (item.contactsStatus === 'ok') await Actor.charge({ eventName: 'contacts-enriched' }).catch(() => {});
+    if (!gate?.open || closing || !canCharge) return;
+    for (const eventName of events) {
+        if (!gate?.open || closing) return;
+        await Actor.charge({ eventName }).catch((err) => log.warning(`Charge ${eventName}: ${redactSecrets(err?.message || err)}`));
     }
 }
 
@@ -231,9 +280,9 @@ async function loadDetail(url, proxyUrl) {
     let last = null;
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
-            last = await fetchPlaceDetail(url, { proxyUrl, language, maxReviews: reviewLimit, timeoutMs: 12000 });
+            last = await fetchPlaceDetail(url, { proxyUrl, language: checked.language, maxReviews: reviewLimit, timeoutMs: 12000 });
         } catch (err) {
-            last = { error: err.message, place: null, bytes: 0, ms: 0 };
+            last = { error: redactSecrets(err?.message || err), place: null, bytes: 0, ms: 0 };
         }
         stats.detailMs.push(last.ms || 0);
         stats.detailBytes += last.bytes || 0;

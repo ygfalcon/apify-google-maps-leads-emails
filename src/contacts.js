@@ -82,12 +82,19 @@ export async function enrichWebsite(website, { proxyUrl, maxPages = 3, deadlineM
         emails: [], thirdPartyEmails: [], phones: [], socials: {}, pagesScanned: 0, bytes: 0,
         impressumOwner: null, vatId: null, error: null,
     };
-    if (!website) return out;
+    if (!website) {
+        out.error = 'invalid_url';
+        return out;
+    }
     let r;
     try {
         r = await withDeadline(engine(website, { proxyUrl, maxPages, validateMx: false, timeoutMs: 6000 }), deadlineMs, 'enrich_timeout');
     } catch (err) {
         out.error = err?.message === 'enrich_timeout' ? 'website_timeout' : 'website_unreachable';
+        return out;
+    }
+    if (!r) {
+        out.error = 'website_unreachable';
         return out;
     }
     out.bytes = r.bytes || 0;

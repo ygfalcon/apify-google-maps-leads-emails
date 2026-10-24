@@ -1,5 +1,6 @@
 import { gotScraping } from './http.js';
 import { parsePreviewPayload } from './place.js';
+import { redactSecrets } from './redact.js';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const HTTP_DETAIL_ERRORS = new Set(['place_page_failed', 'preview_failed', 'preview_url_missing', 'place_parse_failed']);
@@ -82,7 +83,7 @@ async function loadPlace(placeUrl, options, started) {
         if (!place?.title) return { error: 'place_parse_failed', place: null, bytes, ms: Date.now() - started };
         return { error: null, place, bytes, ms: Date.now() - started };
     } catch (err) {
-        const error = err?.message === 'hard_timeout' ? 'hard_timeout' : (err?.message || 'place_page_failed');
+        const error = err?.message === 'hard_timeout' ? 'hard_timeout' : redactSecrets(err?.message || 'place_page_failed');
         return { error, place: null, bytes, ms: Date.now() - started };
     }
 }
